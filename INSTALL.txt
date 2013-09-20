@@ -1,0 +1,10 @@
+INSTALLING
+
+The binary package of greenclone is self-contained. Simply copy it somewhere sensible like %PROGRAMFILES%\greenclone
+and run greenclone from there.
+
+To install greenclone from the source, you simply need to copy the exe file and accompanying dlls to a directory of your choice. But please ensure you've read BUILD.txt in the source hierarchy before trying to build the app. You will need the binary distribution as well as the source from github for the necessary third party libraries.
+
+If that directory happens to be %programfiles%\greenclone, then running install.bat as an administrator from the source directory will probably work.
+
+The AlphaVSS dlls come from the AlphaVSS project at www.alphaleonis.com Many thanks to that project!

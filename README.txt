@@ -1,14 +1,9 @@
-greenclone
-==========
-
-copy windows hierarchies handling hard and soft links, perms, afs, VSS shadows and long filenames
-
 Copyright (C) 2013 Gary M. Bilkus
-Initial version September 2013
-
 
 This project - greenclone - provides Windows users with an alternative to robocopy and other command line tools for 
 making copies of directory hierarchies in a form which is browsable and can be used for an exact restore.
+
+The source code is published under a gpl and is available from github as project greenclone.
 
 Its key features which distinguish it from other command line tools are:
 
@@ -75,4 +70,5 @@ Although greenclone does its best to be reliable, there are some reasons it may 
 Greenclone's /SHADOW option is fairly naive. It will work fine for backups of most home workstations, but will almost certainly not do everything it needs to for a complete backup of a complex server.  If the built-in shadow copy service doesn't meet your needs, you can always use other tools to create a shadow copy, and use the resulting path as source - greenclone is perfectly happy with \\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy23\ as the start of its path.
 Please DON'T attempt to use /SHADOW on an existing shadow copy! 
 
-greenclone doesn't have as many command line options as other tools. This is deliberate as it is intended to do one very important job and do it well. That said, the source code is freely available, and the main class, written in C#, provides somewhat more fine-grained control, and can easily be adapted for more specialised purposes.
+greenclone doesn't have as many command line options as other tools. This is deliberate as it is intended to do one very important job and do it well. 
+That said, the source code is freely available, and the main class, written in C#, provides somewhat more fine-grained control, and can easily be adapted for more specialised purposes.

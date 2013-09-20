@@ -1,0 +1,16 @@
+This project was built using VS2010 and .net framework 4.5
+Other versions of the microsoft tools and framework will probably work too
+The supplied .sln and .csproj files may work, but I don't support them, just the actual code.
+
+If the supplied .sln doesn't work for some reason, you can easily create a new project for the 4 .cs files. 
+
+The only gotchas are:
+
+You either need to strip out the VSS stuff ( see below ) or have the AlphaVSS dlls which you can get either from the binary distribution of greenclone
+or from the www.alphaleonis.com website. Then you need to add references to AlphaVSS.Common.dll and have the other AlphaVSS files in the directory you run from.
+Alphavss dynamically loads one of the other dlls depending on the platform you are running on.
+Your target must be 'Any CPU' not x86 if you are running on a 64 bit machine. This is a limitation of VSS implementations.
+
+
+If you want to strip out the VSS stuff it's all easier to compile. Just remove vsshelper.cs and delete the couple of lines which refer to it in clone.cs
+

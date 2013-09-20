@@ -1,0 +1,6 @@
+mkdir "%ProgramFiles%\greenclone"
+copy bin\Release\*.exe "%ProgramFiles%\greenclone"
+copy bin\Release\*.dll "%ProgramFiles%\greenclone"
+copy thirdparty\* "%ProgramFiles%\greenclone"
+copy README.txt "%ProgramFiles%\greenclone"
+copy INSTALL.txt "%ProgramFiles%\greenclone"

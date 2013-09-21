@@ -24,12 +24,12 @@ using System.ComponentModel;
 using System.Collections;
 using Win32IF;
 using System.Diagnostics;
-public class DeletionHelper
+class DeletionHelper
 {
     // if you want a job done properly.....
     // The methods in this class will delete a directory and all its contents by hook or crook
     private static Hashtable emptyHashtable = new Hashtable();
-    
+
     public static int DeletePathAndContentsRegardless(string foundFileName)
     {
         return DeletePathAndContentsUnless(foundFileName, emptyHashtable);
@@ -113,7 +113,7 @@ public class DeletionHelper
     }
 };
 
-public class BackupReader
+class BackupReader
 {
     static IntPtr pBuffer = Marshal.AllocHGlobal(1024 * 1034); // 1MB plus an extra 10K so we don't split a stream header;
     private bool readingBkFile = true;
@@ -323,15 +323,12 @@ public class Backup
     public Boolean overwriteFile = false; // if the destination is an existing file, allow it to be changed into a dir or a reparse
     public Boolean overwriteSameType = true; // if source and destination are both files, both dirs or both reparses, change the destination to be the same as the source. 
 
-    public Boolean removeExtra = false; // not yet implemented - an interesting challenge!
-
-    public String unicodePrefix = @"\\?\";
-
-
+    public Boolean removeExtra = false;  // delete any files in the destination but not in the source
+    public List<String> excludeList = null; // list of files to exclude.
     public String originalPath;
     public String newPath;
     public String bkFileSuffix = ".bkfd";
-    public static int originalPathLength;
+
 
     public Hashtable filesToKeep = new Hashtable();
     public int nFiles = 0;
@@ -340,9 +337,12 @@ public class Backup
     public int nFailed = 0;
     public int nSame = 0;
     public int nIgnored = 0;
+    public int nExcluded = 0;
     public int nOverwritten = 0;
     public int nDeleted = 0;
     public int nInternalHardLinked = 0;
+    private String unicodePrefix = @"\\?\";
+    private int originalPathLength;
     // store hard link information as needed
     private Hashtable hardlinkInfo = new Hashtable();
     private String addUnicodePrefix(String filename)
@@ -362,13 +362,41 @@ public class Backup
 
         return unicodePrefix + filename;
     }
-
+    protected virtual Boolean exclude(String fromFilename)
+    {
+        // the default excluder - can be overriden in derived classes
+        // return true if this file should not be copied based on its name only
+        if (excludeList == null) return false;
+        if (fromFilename.Length <= originalPathLength) return false;
+        String pathToMatch = @"\" + fromFilename.Substring(originalPathLength) + @"\";
+        foreach (String exclusion in excludeList)
+        {
+            if (pathToMatch.Contains(exclusion)) return true;
+        }
+        return false;
+    }
     public Backup(String of, String nf)
     {
         originalPath = of;
         newPath = nf;
+        char[] backslashes = { '\\' };
+        // Because we support long filenames, we use windows functions which don't understand forward slashes. But because we do support forward slashes, we convert them here
+        originalPath = originalPath.Replace(@"/", @"\");
+        newPath = newPath.Replace(@"/", @"\");
+        // These should be directories without trailing slashes. Since we're nice, we'll remove trailing slashes
+        if (originalPath.EndsWith(@"\"))
+        {
+            originalPath = originalPath.TrimEnd(backslashes);
+        }
+        if (newPath.EndsWith(@"\"))
+        {
+            newPath = newPath.TrimEnd(backslashes);
+        }
+
         originalPathLength = of.Length;
-        reporter = defaultReportFunc;
+
+
+        // reporter = defaultReportFunc;
     }
     public enum reportStage
     {
@@ -401,11 +429,22 @@ public class Backup
         FailedAndBroke = 100
 
     }
-    public static int reportVerbosity = 1; // 0 nothing 1 fail only 2 hardlinks 3 directories 4 normal 5 skips 6 progress
-    public static void defaultReportFunc(String originalFilename, String newFilename, Boolean isDir, Boolean isSpecial, long filelen, long donesofar, reportStage stage, outcome finalOutcome, Win32Exception e)
+    public static int reportVerbosity = 1;
+
+    // override this in a derived class if you want to report differently
+    protected virtual void reporter(String originalFilename, String newFilename, Boolean isDir, Boolean isSpecial, long filelen, long donesofar, reportStage stage, outcome finalOutcome, Win32Exception e)
     {
         if (reportVerbosity == 0) return;
-        String path = originalFilename.Substring(originalPathLength);
+        String wasWhat = "";
+        if (isDir) wasWhat = "DIR ";
+        else if (isSpecial) wasWhat = "SLNK";
+        else wasWhat = "FILE";
+        String didWhat;
+        String path = originalFilename.Substring(originalPathLength - 1);
+        if (reportVerbosity < 2)
+        {
+            Console.Write("{0}:{1,12:N0}:", wasWhat, filelen);
+        }
 
         if (finalOutcome == outcome.Failed)
         {
@@ -419,30 +458,26 @@ public class Backup
             Console.WriteLine("BRKN:{0}:{1}", path, e.Message);
             return;
         }
-        String wasWhat = "";
-        if (isDir) wasWhat = "DIR ";
-        else if (isSpecial) wasWhat = "SLNK";
-        else wasWhat = "FILE";
-        String didWhat;
+
 
         switch (finalOutcome)
         {
             case outcome.PreserveTarget:
-                didWhat = "PRSV";break;
+                didWhat = "PRSV"; break;
             case outcome.IgnoredSource:
-                didWhat = "SKIP";break;
+                didWhat = "SKIP"; break;
             case outcome.NewHardlinkTarget:
-                didWhat = "NHLK";break;
+                didWhat = "NHLK"; break;
             case outcome.Unchanged:
-                didWhat = "SAME";break;
+                didWhat = "SAME"; break;
             case outcome.NewTarget:
-                didWhat = "NEW ";break;
+                didWhat = "NEW "; break;
             case outcome.NotFinished:
-                didWhat = "ABRT";break;
+                didWhat = "ABRT"; break;
             case outcome.ReplaceTarget:
-                didWhat = "OVWR";break;
+                didWhat = "OVWR"; break;
             case outcome.ReplaceTargetWithHardlink:
-                didWhat = "RHLK";break;
+                didWhat = "RHLK"; break;
             default:
                 didWhat = "????";
                 break;
@@ -453,14 +488,14 @@ public class Backup
             case reportStage.OpenOriginal:
                 if (reportVerbosity > 2)
                 {
-                    Console.Write("{0}:{1,12:N0}:", wasWhat,filelen);
+                    Console.Write("{0}:{1,12:N0}:", wasWhat, filelen);
                 }
                 break;
             case reportStage.Transfer:
                 if (reportVerbosity > 5)
                 {
                     Console.WriteLine();
-                    Console.Write("           {0}:{1}", donesofar, filelen);
+                    Console.Write("..{0}:{1}..", donesofar, filelen);
                 }
                 break;
             default:
@@ -470,8 +505,8 @@ public class Backup
         }
     }
 
-    public delegate void reportFunc(String originalFilename, String newFilename, Boolean isDir, Boolean isSpecial, long filelen, long donesofar, reportStage stage, outcome finalOutcome, Win32Exception e);
-    public reportFunc reporter;
+    // public delegate void reportFunc(String originalFilename, String newFilename, Boolean isDir, Boolean isSpecial, long filelen, long donesofar, reportStage stage, outcome finalOutcome, Win32Exception e);
+    // public reportFunc reporter;
 
     public delegate Boolean cloneFunc(String originalFilenane, String newFilename);
 
@@ -568,7 +603,7 @@ public class Backup
 
         Boolean needToWriteFile = restoreFileContents;
         Boolean needToWriteBackupFile = createBkf;
-
+        // Even if we exclude a file, we never delete it from the destination
         filesToKeep.Add(newFilename, originalFilename);
         if (createBkf)
         {
@@ -576,6 +611,14 @@ public class Backup
         }
         try
         {
+            if (exclude(originalFilename))
+            {
+                nExcluded++;
+                reporter(originalFilename, newFilename, false, false, 0, 0, reportStage.OpenOriginal, outcome.Unchanged, null);
+                result = outcome.IgnoredSource;
+                failed = false;
+                return false;
+            }
             stageReached = reportStage.OpenOriginal;
             /* first - open the file itself and see what it is */
             fromFd = W32File.CreateFile(addUnicodePrefix(originalFilename)
@@ -851,7 +894,7 @@ public class Backup
             {
                 if (isNormalDir || isReparseDir)
                 {
-                    result = destExisted  ? outcome.ReplaceTarget :   outcome.NewTarget;
+                    result = destExisted ? outcome.ReplaceTarget : outcome.NewTarget;
                     if (isNormalDir && destExisted && destIsNormalDir) result = outcome.Unchanged;
                     if (!W32File.CreateDirectory(addUnicodePrefix(newFilename), IntPtr.Zero))
                     {
@@ -1129,8 +1172,8 @@ public class Backup
         {
             uint dummy;
             Win32Exception w = null;
-            if (failed)  w = new Win32Exception(); // capture what failed so far
-
+            stageReached = reportStage.CleanUp;
+            if (failed) w = new Win32Exception(); // capture what failed so far
             else
             {
                 if (b != null && b.rcontext != IntPtr.Zero)
@@ -1144,7 +1187,7 @@ public class Backup
                                 ref b.rcontext))
                     {
                         failed = true;
-                        stageReached = reportStage.CleanUp;
+
                         result = outcome.FailedAndBroke;
                     };
                 }
@@ -1159,7 +1202,6 @@ public class Backup
                                  ref wcontext))
                     {
                         failed = true;
-                        stageReached = reportStage.CleanUp;
                         result = outcome.FailedAndBroke;
                     };
                 }
@@ -1187,7 +1229,6 @@ public class Backup
                     W32File.SetFileTime(toBkFd, ref fromFileInformation.CreationTime, ref fromFileInformation.LastAccessTime, ref fromFileInformation.LastWriteTime);
                     // this allows us to tell if the bkfd is in sync with its companion file
                 };
-                stageReached = reportStage.Finished;
             }
             W32File.CloseHandle(fromFd);
             W32File.CloseHandle(toFd);
@@ -1205,6 +1246,7 @@ public class Backup
             {
                 nFailed++;
             }
+            stageReached = reportStage.Finished;
             reporter(originalFilename, newFilename, isNormalDir, isReparseDir || isReparseFile, flen, sofar, stageReached, result, w);
         }
         // return shouldRecurse;

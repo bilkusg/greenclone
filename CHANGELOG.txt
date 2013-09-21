@@ -1,0 +1,8 @@
+﻿2013 September 20th - initial upload. Program basically working but no doubt full of issues. Lots still to support
+2013 September 21st 
+	Made command line options consistent with documentation
+	Added reporting of number of internally hardlinked output files
+	Added finer grained reporting options ( /Q and /V working now )
+	Cleaned up report function to be virtual rather than delegate
+	Support input paths with forward slashes and trailing slashes
+	Initial support for exclusion lists ( in progress )

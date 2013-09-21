@@ -23,6 +23,16 @@ using VSS;
 
 namespace Clone
 {
+    class MyBackup : Backup
+    {
+        public MyBackup(String ifile, String ofile): base(ifile,ofile)
+        {
+        }
+        protected override  Boolean exclude(String fromFilename)
+        {
+            return base.exclude(fromFilename);
+        }
+    }
     class Clone
     {
         [MTAThread]
@@ -33,6 +43,8 @@ namespace Clone
         }
 
         VssHelper vssHelper = null;
+        List<String> excludePaths = new List<String>();
+        Boolean excludingPaths = false;
 
         public void usage()
         {
@@ -46,11 +58,12 @@ namespace Clone
             Console.WriteLine("/H - use hard links");
             Console.WriteLine("/Q - quiet - only error messages");
             Console.WriteLine("/V - verbose - report file progress");
+            Console.WriteLine("/XP path - exclude files matching path within the hierarchy. Can be repeated");
         }
 
         public void run(string[] args)
         {
-            Console.WriteLine("Greenwheel clone version D9L9. Copyright (c) Gary M. Bilkus");
+            Console.WriteLine("Greenwheel clone version D9LC. Copyright (c) Gary M. Bilkus");
             String fromPath = "";
             String toPath = "";
             int nPaths = 0;
@@ -58,9 +71,16 @@ namespace Clone
             // coarse grained command line options
             Boolean bkfile = false, reparseOnly = false, overwrite = false, useHardLinks = false, copyPermissions = false;
             Boolean useVss = false;
+            Boolean waitingForExcludePath = false;
 
             foreach (String arg in args)
             {
+                if (waitingForExcludePath)
+                {
+                    excludePaths.Add(arg);
+                    waitingForExcludePath = false;
+                    continue;
+                }
                 if (arg.StartsWith("/") || arg.StartsWith("-"))
                 {
                     // this is an argument
@@ -85,6 +105,10 @@ namespace Clone
                             reportVerbosity = 5; break;
                         case "VV":
                             reportVerbosity = 8; break;
+                        case "XP":
+                            waitingForExcludePath = true;
+                            excludingPaths = true;
+                            break;
                         case "SHADOW":
                             useVss = true; break;
                         default:
@@ -167,7 +191,7 @@ namespace Clone
                     Console.WriteLine("VSS :{0}", fromPath);
 
                 }
-                Backup b = new Backup(fromPath, toPath);
+                Backup b = new MyBackup(fromPath, toPath);
 
 
                 // The backup class has lots of fine-grained controls which we can set programmatically
@@ -203,7 +227,11 @@ namespace Clone
                 b.removeExtra = overwrite; //  automatically remove from the destination any files not found in the source
 
                 b.cloneAlsoUsesBkf = true;
-                Backup.reportVerbosity = reportVerbosity; // 0 nothing 1 fail only 2 hardlinks 3 directories 4 normal 5 skips 6 progress
+                Backup.reportVerbosity = reportVerbosity;
+                if (excludingPaths)
+                {
+                    b.excludeList = excludePaths;
+                }
 
                 b.doit();
                 Console.WriteLine("IN:Dirs:{0} Files:{1} Special:{2} Ignored:{3}", b.nDirs, b.nFiles, b.nSpecial, b.nIgnored);

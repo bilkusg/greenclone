@@ -47,12 +47,15 @@ By default, greenclone will:
 In other words, by default, greenclone will not destroy any data already on the destination.
 
 The following options are available
-   /P - do not copy permissions and attributes
+   /NP - do not copy permissions and attributes
    /W - overwrite files on the destination which are different, and delete any which are not on the source. /W is intended to have exactly the same effect as deleting the destination first, but without the overhead of copying files already the same.
    /K - store permissions, AFS and attributes in an auxiliary file ...bkfd which will be used to restore these if it is found during a copy back
    /SHADOW - create a VSS shadow copy of the source drive first
    /M - don't copy regular files, only reparse points  and the directory hierarchy. Useful for a quick fix for what robocopy leaves out
    /H - if source and destination are on the same filesystem, copy files by hardlinking from source to dest. Useful for making a space-efficient capture of what's already there, just before clobbering it.
+   /M - only copy reparse points and the directory structure
+   /V - verbose - report progress of files during transfer
+   /Q - quiet - only report errors
 
 As a simple example which will probably cover most usage:
 For making backups from an in-use filesystem to a remote possibly non-windows share, do:

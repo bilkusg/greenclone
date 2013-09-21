@@ -342,6 +342,7 @@ public class Backup
     public int nIgnored = 0;
     public int nOverwritten = 0;
     public int nDeleted = 0;
+    public int nInternalHardLinked = 0;
     // store hard link information as needed
     private Hashtable hardlinkInfo = new Hashtable();
     private String addUnicodePrefix(String filename)
@@ -896,6 +897,7 @@ public class Backup
                             if (linkOK && bkLinkOK)
                             {
                                 result = destExisted ? outcome.ReplaceTargetWithHardlink : outcome.NewHardlinkTarget;
+                                nInternalHardLinked++;
                                 failed = false;
                                 return false;
                             }

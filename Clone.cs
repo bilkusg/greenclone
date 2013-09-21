@@ -40,11 +40,12 @@ namespace Clone
             Console.WriteLine("Usage: Clone frompath topath [ options ]");
             Console.WriteLine(" Note each option must be separated by whitespace from the next");
             Console.WriteLine("/M - only copy reparse points and directories");
-            Console.WriteLine("/P - do not copy permissions as well as file data");
+            Console.WriteLine("/NP - do not copy permissions as well as file data");
             Console.WriteLine("/K - create separate files with permission information and alternate streams");
-            Console.WriteLine("/X xxxx - exclude not yet implemented");
             Console.WriteLine("/W - overwrite existing files where necessary");
             Console.WriteLine("/H - use hard links");
+            Console.WriteLine("/Q - quiet - only error messages");
+            Console.WriteLine("/V - verbose - report file progress");
         }
 
         public void run(string[] args)
@@ -63,14 +64,14 @@ namespace Clone
                 if (arg.StartsWith("/") || arg.StartsWith("-"))
                 {
                     // this is an argument
-                    switch (arg.Substring(1))
+                    switch (arg.Substring(1).ToUpper())
                     {
                         case "?":
                         case "HELP": usage(); return;
                         case "W":
                         case "MIR": overwrite = true; break;
-                        case "P":
-                        case "PERMS": copyPermissions = true; break;
+                        case "NP":
+                        case "NOPERMS": copyPermissions = true; break;
                         case "K":
                         case "BKFD": bkfile = true; break;
                         case "H":

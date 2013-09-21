@@ -50,7 +50,7 @@ namespace Clone
 
         public void run(string[] args)
         {
-            Console.WriteLine("Greenwheel clone version D9H9. Copyright (c) Gary M. Bilkus");
+            Console.WriteLine("Greenwheel clone version D9L9. Copyright (c) Gary M. Bilkus");
             String fromPath = "";
             String toPath = "";
             int nPaths = 0;
@@ -207,7 +207,7 @@ namespace Clone
 
                 b.doit();
                 Console.WriteLine("IN:Dirs:{0} Files:{1} Special:{2} Ignored:{3}", b.nDirs, b.nFiles, b.nSpecial, b.nIgnored);
-                Console.WriteLine("OUT:Same:{0} Overwritten:{1} Deleted:{2}", b.nSame, b.nOverwritten, b.nDeleted);
+                Console.WriteLine("OUT:Same:{0} Overwritten:{1} Deleted:{2} IntHLinked:{3}", b.nSame, b.nOverwritten, b.nDeleted,b.nInternalHardLinked);
                 if (b.nFailed > 0)
                 {
                     Console.WriteLine("FAILED:{0}", b.nFailed);

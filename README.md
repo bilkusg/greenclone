@@ -107,7 +107,7 @@ If the built-in shadow copy service doesn't meet your needs,
 you can always use other tools to create a shadow copy, and use the resulting path as source 
 as greenclone is perfectly happy with something like:
 
- \\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy23\
+ \\\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy23\
 
  as the start of its path.
 

@@ -23,6 +23,7 @@ using VSS;
 
 namespace Clone
 {
+    
     class MyBackup : Backup
     {
         public MyBackup(String ifile, String ofile): base(ifile,ofile)
@@ -35,6 +36,7 @@ namespace Clone
     }
     class Clone
     {
+        private const String version = "Greenwheel clone version D9NA. Copyright (c) Gary M. Bilkus";
         [MTAThread]
         static void Main(string[] args)
         {
@@ -48,7 +50,6 @@ namespace Clone
 
         public void usage()
         {
-
             Console.WriteLine("Usage: Clone frompath topath [ options ]");
             Console.WriteLine(" Note each option must be separated by whitespace from the next");
             Console.WriteLine("/M - only copy reparse points and directories");
@@ -59,19 +60,35 @@ namespace Clone
             Console.WriteLine("/Q - quiet - only error messages");
             Console.WriteLine("/V - verbose - report file progress");
             Console.WriteLine("/XP path - exclude files matching path within the hierarchy. Can be repeated");
+            Console.WriteLine("/XL filename - Read exclude list from contents of file");
+            Console.WriteLine("/SHADOW - Create a shadow copy for the source and read from that");
+            Console.WriteLine("/QUICKVSS - Create a shadow copy without registering all writers. Faster than SHADOW and works when debugging");
         }
 
+        public void processBatchExcludeFile(String filename)
+        {
+            String line;
+            using (System.IO.StreamReader file = new System.IO.StreamReader(filename))
+            {
+                while ( (line = file.ReadLine()) != null)
+                {
+                    excludePaths.Add(line);
+                }
+            }
+
+        }
         public void run(string[] args)
         {
-            Console.WriteLine("Greenwheel clone version D9LC. Copyright (c) Gary M. Bilkus");
+            Console.WriteLine(version);
             String fromPath = "";
             String toPath = "";
             int nPaths = 0;
             int reportVerbosity = 3;
             // coarse grained command line options
             Boolean bkfile = false, reparseOnly = false, overwrite = false, useHardLinks = false, copyPermissions = false;
-            Boolean useVss = false;
+            Boolean useVss = false; Boolean useFullVss = true;
             Boolean waitingForExcludePath = false;
+            Boolean waitingForBatchFilePath = false;
 
             foreach (String arg in args)
             {
@@ -81,6 +98,12 @@ namespace Clone
                     waitingForExcludePath = false;
                     continue;
                 }
+                if (waitingForBatchFilePath)
+                {
+                    processBatchExcludeFile(arg);
+                    waitingForBatchFilePath = false;
+                    continue;
+                }
                 if (arg.StartsWith("/") || arg.StartsWith("-"))
                 {
                     // this is an argument
@@ -88,6 +111,9 @@ namespace Clone
                     {
                         case "?":
                         case "HELP": usage(); return;
+                        case "XL":
+                            waitingForBatchFilePath = true;
+                            break;
                         case "W":
                         case "MIR": overwrite = true; break;
                         case "NP":
@@ -104,6 +130,7 @@ namespace Clone
                         case "VERBOSE":
                             reportVerbosity = 5; break;
                         case "VV":
+                        case "VERYVERBOSE":
                             reportVerbosity = 8; break;
                         case "XP":
                             waitingForExcludePath = true;
@@ -111,6 +138,10 @@ namespace Clone
                             break;
                         case "SHADOW":
                             useVss = true; break;
+                        case "QUICKVSS":
+                            useVss = true;
+                            useFullVss = false;
+                            break;
                         default:
                             {
                                 Console.Write("FAILED: Unrecognised option {0} use /? for help", arg);
@@ -141,6 +172,7 @@ namespace Clone
                 return;
             }
             Console.WriteLine("From:{0} -> {1}", fromPath, toPath);
+
             try
             {
                 Win32IF.Privileges.obtainPrivileges();
@@ -180,7 +212,7 @@ namespace Clone
 
 
                     String[] drives = { atDrive };
-                    vssHelper.CreateShadowsForDrives(drives,true);
+                    vssHelper.CreateShadowsForDrives(drives,useFullVss);
                     String driveShadow = (String)vssHelper.pathToShadow[atDrive];
                     if (driveShadow == null)
                     {
@@ -191,6 +223,7 @@ namespace Clone
                     Console.WriteLine("VSS :{0}", fromPath);
 
                 }
+              
                 Backup b = new MyBackup(fromPath, toPath);
 
 

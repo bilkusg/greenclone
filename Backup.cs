@@ -375,6 +375,49 @@ public class Backup
         }
         return false;
     }
+    public String fixUpPath(String fromPath)
+    {
+        // Now, we have to try and regularize the path names to avoid unexpected surprises.
+        // Windows is a complete mess here
+        // 
+        // trailing \ is mandatory if we are on the root of a drive, whether specified by drive letter or unicode path
+        // trailing \ must not be present if we are on any other directory or filename
+        // telling the above two cases apart is non-trivial, but we want to be nice to our users and let them bung unnecessary \ in if they feel like it
+        // as this makes it easier to script with
+        // multiple \ are always bad unless they are the first two characters of the filename, in which case they indicate a unc or unicode path
+        // We get round all this nonsense by passing to backup a path which never contains \\ except possibly at the beginning, 
+        // and always ends in \ even if the path isn't a directory.
+        StringBuilder newFromPath = new StringBuilder(fromPath.Length);
+        Boolean lastWasBackslash = false;
+        Boolean atFirstChar = true;
+        foreach (Char c in fromPath)
+        {
+            if (atFirstChar)
+            {
+                atFirstChar = false;
+                newFromPath.Append(c);
+                continue;
+            }
+            if (c == '\\')
+            {
+                if (lastWasBackslash)
+                {
+                    continue;
+                }
+                lastWasBackslash = true;
+            }
+            else
+            {
+                lastWasBackslash = false;
+            }
+            newFromPath.Append(c);
+        }
+        // if the very last character was a backslash, eliminate it if this isn't the root of a drive expressed in one of several forms:
+        // X:\
+        // \\?\Volume{......}\
+        // \\?\GLOBAL....ShadowCopynn\
+        return newFromPath.ToString();
+    }
     public Backup(String of, String nf)
     {
         originalPath = of;
@@ -383,19 +426,9 @@ public class Backup
         // Because we support long filenames, we use windows functions which don't understand forward slashes. But because we do support forward slashes, we convert them here
         originalPath = originalPath.Replace(@"/", @"\");
         newPath = newPath.Replace(@"/", @"\");
-        // These should be directories without trailing slashes. Since we're nice, we'll remove trailing slashes
-        if (originalPath.EndsWith(@"\"))
-        {
-            originalPath = originalPath.TrimEnd(backslashes);
-        }
-        if (newPath.EndsWith(@"\"))
-        {
-            newPath = newPath.TrimEnd(backslashes);
-        }
-
+        originalPath = fixUpPath(originalPath);
+        newPath = fixUpPath(newPath);
         originalPathLength = of.Length;
-
-
         // reporter = defaultReportFunc;
     }
     public enum reportStage
@@ -440,7 +473,12 @@ public class Backup
         else if (isSpecial) wasWhat = "SLNK";
         else wasWhat = "FILE";
         String didWhat;
-        String path = originalFilename.Substring(originalPathLength - 1);
+        String path = @".";
+        if (originalFilename.Length > originalPathLength)
+        {
+            path = originalFilename.Substring(originalPathLength);
+        }
+
         if (reportVerbosity < 2)
         {
             Console.Write("{0}:{1,12:N0}:", wasWhat, filelen);
@@ -621,7 +659,12 @@ public class Backup
             }
             stageReached = reportStage.OpenOriginal;
             /* first - open the file itself and see what it is */
-            fromFd = W32File.CreateFile(addUnicodePrefix(originalFilename)
+            String fileToOpen = addUnicodePrefix(originalFilename);
+            if (fileToOpen.EndsWith(":"))
+            {
+                fileToOpen = fileToOpen + @"\";
+            }
+            fromFd = W32File.CreateFile(addUnicodePrefix(fileToOpen)
             , W32File.EFileAccess.GenericRead
             , W32File.EFileShare.Read
             , IntPtr.Zero
@@ -637,7 +680,7 @@ public class Backup
             /* next - see if we have a .bkfd file to go with this file */
             if (cloneAlsoUsesBkf) // otherwise we would just ignore any .bkfd files 
             {
-                fromBkFd = W32File.CreateFile(addUnicodePrefix(originalFilename) + bkFileSuffix
+                fromBkFd = W32File.CreateFile(fileToOpen + bkFileSuffix
                 , W32File.EFileAccess.GenericRead
                 , W32File.EFileShare.Read
                 , IntPtr.Zero
@@ -674,7 +717,13 @@ public class Backup
 
             // At this point we know we should be dealing with the file. 
             // Now see if the destination exists and if so what it is
-            toFd = W32File.CreateFile(addUnicodePrefix(newFilename)
+
+            fileToOpen = addUnicodePrefix(newFilename);
+            if (fileToOpen.EndsWith(":"))
+            {
+                fileToOpen = fileToOpen + @"\";
+            }
+            toFd = W32File.CreateFile(fileToOpen
             , W32File.EFileAccess.GenericRead
             , W32File.EFileShare.Read | W32File.EFileShare.Delete
             , IntPtr.Zero

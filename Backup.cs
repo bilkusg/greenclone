@@ -558,7 +558,7 @@ public class Backup
         {
             CloneOne(originalPath, newPath);
         }
-        if (removeExtra)
+        if (removeExtra && (nFailed == 0))
         {
             nDeleted = DeletionHelper.DeleteDirectoryContentsRecursivelyUnless(newPath, filesToKeep);
         }

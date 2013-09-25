@@ -24,6 +24,8 @@ using System.ComponentModel;
 using System.Collections;
 using Win32IF;
 using System.Diagnostics;
+using System.Security.Cryptography;
+
 class DeletionHelper
 {
     // if you want a job done properly.....
@@ -487,13 +489,13 @@ public class Backup
         if (finalOutcome == outcome.Failed)
         {
             if (e == null) e = new Win32Exception();
-            Console.WriteLine("FAIL:{0}:{1}", path, e.Message);
+            Console.WriteLine("FAIL:{0}:{1}:{2}", path, stage,e.Message);
             return;
         }
         if (finalOutcome == outcome.FailedAndBroke)
         {
             if (e == null) e = new Win32Exception();
-            Console.WriteLine("BRKN:{0}:{1}", path, e.Message);
+            Console.WriteLine("BRKN:{0}:{1}:{2}", path, stage, e.Message);
             return;
         }
 
@@ -625,8 +627,7 @@ public class Backup
 
         Boolean failed = true;
 
-
-        IntPtr pBuffer = Marshal.AllocHGlobal(102400);
+        byte[] md5buffer = new byte[1024*1034];
         long flen = 0;
         long sofar = 0;
         IntPtr wcontext = IntPtr.Zero;
@@ -659,12 +660,8 @@ public class Backup
             }
             stageReached = reportStage.OpenOriginal;
             /* first - open the file itself and see what it is */
-            String fileToOpen = addUnicodePrefix(originalFilename);
-            if (fileToOpen.EndsWith(":"))
-            {
-                fileToOpen = fileToOpen + @"\";
-            }
-            fromFd = W32File.CreateFile(addUnicodePrefix(fileToOpen)
+
+            fromFd = W32File.CreateFile(addUnicodePrefix(originalFilename)
             , W32File.EFileAccess.GenericRead
             , W32File.EFileShare.Read
             , IntPtr.Zero
@@ -680,7 +677,7 @@ public class Backup
             /* next - see if we have a .bkfd file to go with this file */
             if (cloneAlsoUsesBkf) // otherwise we would just ignore any .bkfd files 
             {
-                fromBkFd = W32File.CreateFile(fileToOpen + bkFileSuffix
+                fromBkFd = W32File.CreateFile(addUnicodePrefix(originalFilename) + bkFileSuffix
                 , W32File.EFileAccess.GenericRead
                 , W32File.EFileShare.Read
                 , IntPtr.Zero
@@ -718,12 +715,7 @@ public class Backup
             // At this point we know we should be dealing with the file. 
             // Now see if the destination exists and if so what it is
 
-            fileToOpen = addUnicodePrefix(newFilename);
-            if (fileToOpen.EndsWith(":"))
-            {
-                fileToOpen = fileToOpen + @"\";
-            }
-            toFd = W32File.CreateFile(fileToOpen
+            toFd = W32File.CreateFile(addUnicodePrefix(newFilename)
             , W32File.EFileAccess.GenericRead
             , W32File.EFileShare.Read | W32File.EFileShare.Delete
             , IntPtr.Zero
@@ -739,7 +731,7 @@ public class Backup
                 if (createBkf)
                 {
                     stageReached = reportStage.OpenBkf;
-                    toBkFd = W32File.CreateFile(addUnicodePrefix(newFilename + bkFileSuffix)
+                    toBkFd = W32File.CreateFile(addUnicodePrefix(newFilename) + bkFileSuffix
                       , W32File.EFileAccess.GenericRead
                       , W32File.EFileShare.Read
                       , IntPtr.Zero
@@ -1042,11 +1034,12 @@ public class Backup
                     // Normal files get created here
                     if (restoreFileContents || isReparseFile)
                     {
+                        W32File.DeleteFile(addUnicodePrefix(newFilename)); // we delete the file first in case it's hardlinked somewhere else
                         toFd = W32File.CreateFile(addUnicodePrefix(newFilename)
                                , W32File.EFileAccess.GenericWrite | W32File.EFileAccess.WriteOwner | W32File.EFileAccess.WriteDAC
                                , W32File.EFileShare.Read | W32File.EFileShare.Write | W32File.EFileShare.Delete
                                , IntPtr.Zero
-                               , W32File.ECreationDisposition.OpenAlways
+                               , W32File.ECreationDisposition.CreateAlways
                                , W32File.EFileAttributes.BackupSemantics | W32File.EFileAttributes.OpenReparsePoint
                                , IntPtr.Zero);
                         result = result = destExisted ? outcome.ReplaceTarget : outcome.NewTarget;
@@ -1054,7 +1047,7 @@ public class Backup
                 } // end if normal file
             }
             // At this stage we have open handles for the up to 4 files we need to use
-            if (toFd == W32File.INVALID_HANDLE_VALUE)
+            if (needToWriteFile && ( toFd == W32File.INVALID_HANDLE_VALUE)) 
             {
                 result = destExisted ? outcome.FailedAndBroke : outcome.Failed;
                 failed = true;
@@ -1102,118 +1095,136 @@ public class Backup
             b = new BackupReader(fromFd, fromBkFd);
             Boolean currentStreamGoesToOutBkFd = false;
             Boolean currentStreamGoesToOutFd = false;
+            Boolean currentStreamGoesToChecksum = false;
             Boolean alreadySeenSecurityData = false;
             Boolean alreadyWrittenGreenwheelHeader = false;
-            do
+            using (MD5 md5 = MD5.Create())
             {
-                // if we have a fromBkFd and a fromFd we merge the two to create a stream
-                // if we only have one, we use it directly
-                // all this is encapsulated in b
-                // The end result should be that we get a sequence of stream headers and stream data in exactly the right format for a BackupWrite to restore
-                // the file we want. We can then pick and choose individual streams to go to the outBkFd if we are producing one.
-                // It is an open question whether backup write cares about the precise order of the streams but we play safe. 
-                if (!b.readNextStreamPart())
+                md5.Initialize();
+                do
                 {
-                    if (b.atEndOfFile) { failed = false; break; } // we were done
-                    // something has gone wrong?
-                    continue;
-                }
-                if (b.atNewStreamHeader)
-                {
-                    // Console.WriteLine("Stream Header: Size {0} Type {1} Name {2}", b.streamHeader.Size, b.streamHeader.StreamId, b.currentStreamName);
+                    // if we have a fromBkFd and a fromFd we merge the two to create a stream
+                    // if we only have one, we use it directly
+                    // all this is encapsulated in b
+                    // The end result should be that we get a sequence of stream headers and stream data in exactly the right format for a BackupWrite to restore
+                    // the file we want. We can then pick and choose individual streams to go to the outBkFd if we are producing one.
+                    // It is an open question whether backup write cares about the precise order of the streams but we play safe. 
 
-                    if (b.streamHeader.StreamId == (uint)W32File.StreamIdValue.BACKUP_GREENWHEEL_HEADER)
+                    // We now also calculate checksums on the fly for future use
+
+                    if (!b.readNextStreamPart())
                     {
-                        currentStreamGoesToOutBkFd = needToWriteBackupFile;
-                        currentStreamGoesToOutFd = false;
-                        fromFileInformation.FileAttributes = (FileAttributes)b.streamHeader.StreamAttributes;
-                        alreadyWrittenGreenwheelHeader = true;
+                        if (b.atEndOfFile) { failed = false; break; } // we were done
+                        // something has gone wrong?
+                        continue;
                     }
-                    else
+                    if (b.atNewStreamHeader)
                     {
-                        if (needToWriteBackupFile && !alreadyWrittenGreenwheelHeader)
+                        // Console.WriteLine("Stream Header: Size {0} Type {1} Name {2}", b.streamHeader.Size, b.streamHeader.StreamId, b.currentStreamName);
+
+                        if (b.streamHeader.StreamId == (uint)W32File.StreamIdValue.BACKUP_GREENWHEEL_HEADER)
                         {
-                            W32File.WIN32_STREAM_ID greenStream = new W32File.WIN32_STREAM_ID();
-                            greenStream.StreamId = (uint)W32File.StreamIdValue.BACKUP_GREENWHEEL_HEADER;
-                            greenStream.Size = 0;
-                            greenStream.StreamNameSize = 0;
-                            greenStream.StreamNameData = IntPtr.Zero;
-                            greenStream.StreamAttributes = (uint)fromFileInformation.FileAttributes;
-
-                            uint nbw = 0;
-                            int greenStreamSize = Marshal.SizeOf(greenStream);
-                            IntPtr greenStreamPtr = Marshal.AllocHGlobal(greenStreamSize);
-                            Marshal.StructureToPtr(greenStream, greenStreamPtr, false);
-
-                            bool ok = W32File.WriteFile(toBkFd, greenStreamPtr, W32File.MIN_WIN32_STREAM_ID_SIZE, out nbw, IntPtr.Zero);
-                            Marshal.FreeHGlobal(greenStreamPtr);
+                            currentStreamGoesToOutBkFd = needToWriteBackupFile;
+                            currentStreamGoesToOutFd = false;
+                            fromFileInformation.FileAttributes = (FileAttributes)b.streamHeader.StreamAttributes;
+                            alreadyWrittenGreenwheelHeader = true;
                         }
-                        alreadyWrittenGreenwheelHeader = true;
-
-                        switch (b.streamHeader.StreamId)
+                        else
                         {
-                            case (uint)W32File.StreamIdValue.BACKUP_SECURITY_DATA:
-                                {
-                                    if (alreadySeenSecurityData)
+                            if (needToWriteBackupFile && !alreadyWrittenGreenwheelHeader)
+                            {
+                                W32File.WIN32_STREAM_ID greenStream = new W32File.WIN32_STREAM_ID();
+                                greenStream.StreamId = (uint)W32File.StreamIdValue.BACKUP_GREENWHEEL_HEADER;
+                                greenStream.Size = 0;
+                                greenStream.StreamNameSize = 0;
+                                greenStream.StreamNameData = IntPtr.Zero;
+                                greenStream.StreamAttributes = (uint)fromFileInformation.FileAttributes;
+
+                                uint nbw = 0;
+                                int greenStreamSize = Marshal.SizeOf(greenStream);
+                                IntPtr greenStreamPtr = Marshal.AllocHGlobal(greenStreamSize);
+                                Marshal.StructureToPtr(greenStream, greenStreamPtr, false);
+
+                                bool ok = W32File.WriteFile(toBkFd, greenStreamPtr, W32File.MIN_WIN32_STREAM_ID_SIZE, out nbw, IntPtr.Zero);
+                                Marshal.FreeHGlobal(greenStreamPtr);
+                            }
+                            alreadyWrittenGreenwheelHeader = true;
+
+                            switch (b.streamHeader.StreamId)
+                            {
+                                case (uint)W32File.StreamIdValue.BACKUP_SECURITY_DATA:
                                     {
-                                        currentStreamGoesToOutBkFd = false;
-                                        currentStreamGoesToOutFd = false;
+                                        if (alreadySeenSecurityData)
+                                        {
+                                            currentStreamGoesToOutBkFd = false;
+                                            currentStreamGoesToOutFd = false;
+                                        }
+                                        else
+                                        {
+                                            alreadySeenSecurityData = true;
+                                            currentStreamGoesToOutFd = needToWriteFile && restorePermissions;
+                                            currentStreamGoesToOutBkFd = needToWriteBackupFile; // permissions are always written to a bkf if they are found
+                                        }
+                                        break;
                                     }
-                                    else
+                                case (uint)W32File.StreamIdValue.BACKUP_DATA:
                                     {
-                                        alreadySeenSecurityData = true;
-                                        currentStreamGoesToOutFd = needToWriteFile && restorePermissions;
-                                        currentStreamGoesToOutBkFd = needToWriteBackupFile; // permissions are always written to a bkf if they are found
+                                        currentStreamGoesToOutFd = needToWriteFile && restoreFileContents;
+                                        currentStreamGoesToOutBkFd = needToWriteBackupFile && createBkfData;
+                                        currentStreamGoesToChecksum = true; 
+                                        break;
                                     }
-                                    break;
-                                }
-                            case (uint)W32File.StreamIdValue.BACKUP_DATA:
-                                {
-                                    currentStreamGoesToOutFd = needToWriteFile && restoreFileContents;
-                                    currentStreamGoesToOutBkFd = needToWriteBackupFile && createBkfData;
-                                    break;
-                                }
-                            case (uint)W32File.StreamIdValue.BACKUP_EA_DATA:
-                                {
-                                    currentStreamGoesToOutFd = needToWriteFile && restoreAFS;
-                                    currentStreamGoesToOutBkFd = needToWriteBackupFile && createBkfAFS;
-                                    break;
-                                }
-                            default:
-                                {
-                                    currentStreamGoesToOutFd = needToWriteFile;
-                                    currentStreamGoesToOutBkFd = needToWriteBackupFile;
-                                    break;
-                                }
+                                case (uint)W32File.StreamIdValue.BACKUP_EA_DATA:
+                                    {
+                                        currentStreamGoesToOutFd = needToWriteFile && restoreAFS;
+                                        currentStreamGoesToOutBkFd = needToWriteBackupFile && createBkfAFS;
+                                        currentStreamGoesToChecksum = true; 
+                                        break;
+                                    }
+                                default:
+                                    {
+                                        currentStreamGoesToOutFd = needToWriteFile;
+                                        currentStreamGoesToOutBkFd = needToWriteBackupFile;
+
+                                        break;
+                                    }
+                            }
                         }
                     }
-                }
-                if (currentStreamGoesToOutBkFd)
-                {
-                    uint nbw = 0;
-                    bool ok = W32File.WriteFile(toBkFd, b.streamDataSegmentStart, b.streamDataSegmentSize, out nbw, IntPtr.Zero);
-                }
-                if (currentStreamGoesToOutFd)
-                {
-                    if (!W32File.BackupWrite(toFd,
-                                 b.streamDataSegmentStart,
-                                 b.streamDataSegmentSize,
-                                 out bytesWritten,
-                                 false,
-                                 restorePermissions,
-                                 ref wcontext))
+                    if (currentStreamGoesToOutBkFd)
                     {
-                        failed = true; break;
+                        uint nbw = 0;
+                        bool ok = W32File.WriteFile(toBkFd, b.streamDataSegmentStart, b.streamDataSegmentSize, out nbw, IntPtr.Zero);
                     }
-                    if (b.streamDataSegmentSize != bytesWritten)
+                    if (currentStreamGoesToOutFd)
                     {
-                        failed = true; break;
+                        if (!W32File.BackupWrite(toFd,
+                                     b.streamDataSegmentStart,
+                                     b.streamDataSegmentSize,
+                                     out bytesWritten,
+                                     false,
+                                     restorePermissions,
+                                     ref wcontext))
+                        {
+                            failed = true; break;
+                        }
+                        if (b.streamDataSegmentSize != bytesWritten)
+                        {
+                            failed = true; break;
+                        }
+                        if (currentStreamGoesToChecksum)
+                        {
+                            Marshal.Copy(b.streamDataSegmentStart, md5buffer, 0, (int)bytesWritten);
+                            md5.TransformBlock(md5buffer, 0, (int)bytesWritten, null, 0);
+                        }
                     }
+                    sofar += b.streamDataSegmentSize;
+                    reporter(originalFilename, newFilename, isNormalDir, isReparseFile || isReparseDir, flen, sofar, reportStage.Transfer, outcome.NotFinished, null);
                 }
-                sofar += b.streamDataSegmentSize;
-                reporter(originalFilename, newFilename, isNormalDir, isReparseFile || isReparseDir, flen, sofar, reportStage.Transfer, outcome.NotFinished, null);
+                while (true);
+                md5.TransformFinalBlock(md5buffer, 0, 0);
+                // Console.WriteLine(BitConverter.ToString(md5.Hash));
             }
-            while (true);
             failed = false;
             return shouldRecurse;
         }
@@ -1221,10 +1232,10 @@ public class Backup
         {
             uint dummy;
             Win32Exception w = null;
-            stageReached = reportStage.CleanUp;
             if (failed) w = new Win32Exception(); // capture what failed so far
             else
             {
+                stageReached = reportStage.CleanUp;
                 if (b != null && b.rcontext != IntPtr.Zero)
                 {
                     if (!W32File.BackupRead(IntPtr.Zero,
@@ -1257,8 +1268,6 @@ public class Backup
                 if (failed) w = new Win32Exception();
             }
 
-            Marshal.FreeHGlobal(pBuffer);
-
             Boolean setFileAttribsResult;
             if (!failed)
             {
@@ -1290,12 +1299,13 @@ public class Backup
                 if (isReparseFile || isReparseDir) nSpecial++;
                 else if (isNormalDir) nDirs++;
                 else nFiles++;
+                stageReached = reportStage.Finished;
             }
             else
             {
                 nFailed++;
             }
-            stageReached = reportStage.Finished;
+
             reporter(originalFilename, newFilename, isNormalDir, isReparseDir || isReparseFile, flen, sofar, stageReached, result, w);
         }
         // return shouldRecurse;

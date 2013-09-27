@@ -423,6 +423,10 @@ namespace Win32IF
             //ref System.Threading.NativeOverlapped lpOverlapped);
                       IntPtr n);
         [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool SetFilePointerEx(
+             IntPtr hFile, long liDistanceToMove,
+             out long lpNewFilePointer, uint dwMoveMethod);
+        [DllImport("kernel32.dll", SetLastError = true)]
         public static extern bool BackupRead(IntPtr handle,
                                             IntPtr buffer,
                                             uint bytesToRead,

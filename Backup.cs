@@ -26,17 +26,32 @@ using Win32IF;
 using System.Diagnostics;
 using System.Security.Cryptography;
 
-class DeletionHelper
+public class DeletionHelper
 {
     // if you want a job done properly.....
     // The methods in this class will delete a directory and all its contents by hook or crook
-    private static Hashtable emptyHashtable = new Hashtable();
-
-    public static int DeletePathAndContentsRegardless(string foundFileName)
+    private Hashtable emptyHashtable = new Hashtable();
+    public virtual void reporter(string filename, bool isDir,bool isKept)
+    {
+        if (isKept)
+        {
+            Console.WriteLine("                  :KEEP:{0}", filename);
+            return;
+        }
+        if (isDir)
+        {
+            Console.WriteLine("                  :DELD:{0}", filename);
+        }
+        else
+        {
+            Console.WriteLine("                  :DELF:{0}", filename);
+        }
+    }
+    public int DeletePathAndContentsRegardless(string foundFileName)
     {
         return DeletePathAndContentsUnless(foundFileName, emptyHashtable);
     }
-    public static int DeletePathAndContentsUnless(string foundFileName, Hashtable filesToKeep)
+    public int DeletePathAndContentsUnless(string foundFileName, Hashtable filesToKeep)
     {
         // this no nonsense method will do its damndest to delete a path regardless of what it is or what ( if a directory ) it contains.
         // if you have backup rights and the path is legitimate, it should always work.....if not there's yet another edge case to worry about.
@@ -52,6 +67,7 @@ class DeletionHelper
         }
         if (filesToKeep.ContainsKey(foundFileName)) // this file is one of ours, so hands off!
         {
+            reporter(foundFileName, false, true);
             return nDeleted;
         }
         if (attribs.HasFlag(FileAttributes.ReadOnly))
@@ -60,6 +76,7 @@ class DeletionHelper
         }
         if (attribs.HasFlag(FileAttributes.Directory))
         {
+            reporter(foundFileName, true, false);
             if (!W32File.RemoveDirectory(foundFileName))
             {
                 return -1;
@@ -68,6 +85,7 @@ class DeletionHelper
         }
         else
         {
+            reporter(foundFileName, false, false);
             if (!W32File.DeleteFile(foundFileName))
             {
                 return -1;
@@ -77,11 +95,11 @@ class DeletionHelper
 
         return nDeleted;
     }
-    public static int DeleteDirectoryContentsRecursively(string directoryPath)
+    public int DeleteDirectoryContentsRecursively(string directoryPath)
     {
         return DeleteDirectoryContentsRecursivelyUnless(directoryPath, emptyHashtable);
     }
-    public static int DeleteDirectoryContentsRecursivelyUnless(string directoryPath, Hashtable filesToKeep)
+    public int DeleteDirectoryContentsRecursivelyUnless(string directoryPath, Hashtable filesToKeep)
     {
         int nDeleted = 0;
         FileFind.WIN32_FIND_DATA fdata = new FileFind.WIN32_FIND_DATA();
@@ -347,6 +365,8 @@ public class Backup
     private int originalPathLength;
     // store hard link information as needed
     private Hashtable hardlinkInfo = new Hashtable();
+    public const int CHECKSUM_SIZE = 32;
+    public DeletionHelper deletionHelper = new DeletionHelper(); // public so we can override the reporting if we wish
     private String addUnicodePrefix(String filename)
     {
         if (filename.StartsWith(unicodePrefix))
@@ -371,9 +391,23 @@ public class Backup
         if (excludeList == null) return false;
         if (fromFilename.Length <= originalPathLength) return false;
         String pathToMatch = @"\" + fromFilename.Substring(originalPathLength) + @"\";
-        foreach (String exclusion in excludeList)
+        pathToMatch = pathToMatch.ToUpper();
+        int l = pathToMatch.Length;
+        for (int i = 0; i < l - 1; i++)
         {
-            if (pathToMatch.Contains(exclusion)) return true;
+            String tryHere = pathToMatch.Substring(i);
+            int index = excludeList.BinarySearch(tryHere);
+            if ( index >=0 ) 
+            {
+                // exact match
+                return true;
+            }
+
+            index = ~index;
+            if ( index == 0) continue; // we are smaller than the first element
+            index = index - 1;
+            String nearest = excludeList[index];
+            if ( pathToMatch.Contains(nearest)) return true;
         }
         return false;
     }
@@ -459,6 +493,7 @@ public class Backup
         PreserveTarget = 41,
 
         Unchanged = 51,
+        OnlyNeedBkFile = 52,
         // bad outcomes, failed means failed and did nothing, failedAndBroke means did something but not the right thing!
         Failed = 99,
         FailedAndBroke = 100
@@ -483,7 +518,7 @@ public class Backup
 
         if (reportVerbosity < 2)
         {
-            Console.Write("{0}:{1,12:N0}:", wasWhat, filelen);
+            Console.Write("{0}:{1,14:N0}:", wasWhat, filelen);
         }
 
         if (finalOutcome == outcome.Failed)
@@ -510,6 +545,8 @@ public class Backup
                 didWhat = "NHLK"; break;
             case outcome.Unchanged:
                 didWhat = "SAME"; break;
+            case outcome.OnlyNeedBkFile:
+                didWhat = "SAMK"; break;
             case outcome.NewTarget:
                 didWhat = "NEW "; break;
             case outcome.NotFinished:
@@ -552,6 +589,10 @@ public class Backup
 
     virtual public void doit()
     {
+        if (excludeList != null)
+        {
+            excludeList.Sort();
+        }
         if (recursive)
         {
             CloneRecursive(originalPath, newPath, CloneOne);
@@ -562,7 +603,7 @@ public class Backup
         }
         if (removeExtra && (nFailed == 0))
         {
-            nDeleted = DeletionHelper.DeleteDirectoryContentsRecursivelyUnless(newPath, filesToKeep);
+            nDeleted = deletionHelper.DeleteDirectoryContentsRecursivelyUnless(newPath, filesToKeep);
         }
     }
     static ulong dsistart = 0;
@@ -637,7 +678,8 @@ public class Backup
         W32File.BY_HANDLE_FILE_INFORMATION fromFileInformation = new W32File.BY_HANDLE_FILE_INFORMATION();
         W32File.BY_HANDLE_FILE_INFORMATION toFileInformation = new W32File.BY_HANDLE_FILE_INFORMATION();
         W32File.BY_HANDLE_FILE_INFORMATION toBkFdFileInformation = new W32File.BY_HANDLE_FILE_INFORMATION();
-
+        W32File.BY_HANDLE_FILE_INFORMATION toFileInformationFromBkFd = new W32File.BY_HANDLE_FILE_INFORMATION();
+        Boolean BackupFileInformationMatchesFromFile = false;
         BackupReader b = null;
 
         Boolean needToWriteFile = restoreFileContents;
@@ -743,20 +785,19 @@ public class Backup
                         // do a sanity check here. Is this file a normal file of the same age as our destination. If so, it stays or goes
                         // with the destination. If it's either not a normal file, or a different age, we zap it, because it's not right
                         W32File.GetFileInformationByHandle(toBkFd, out toBkFdFileInformation);
-                        W32File.CloseHandle(toBkFd);
-                        toBkFd = W32File.INVALID_HANDLE_VALUE;
 
                         if (toBkFdFileInformation.FileAttributes.HasFlag(FileAttributes.Directory) ||
 
-                            toBkFdFileInformation.FileAttributes.HasFlag(FileAttributes.ReparsePoint) ||
-                           !toFileInformation.LastWriteTime.Equals(toBkFdFileInformation.LastWriteTime)
-
+                            toBkFdFileInformation.FileAttributes.HasFlag(FileAttributes.ReparsePoint)
                             )
                         {
+                            W32File.CloseHandle(toBkFd);
+                            toBkFd = W32File.INVALID_HANDLE_VALUE;
                             // useless so delete it
-                            if (DeletionHelper.DeletePathAndContentsRegardless(addUnicodePrefix(newFilename + bkFileSuffix)) <= 0)
+                            if (deletionHelper.DeletePathAndContentsRegardless(addUnicodePrefix(newFilename + bkFileSuffix)) <= 0)
                             {
                                 result = outcome.FailedAndBroke;
+
                                 failed = true;
                                 return false;
 
@@ -765,6 +806,36 @@ public class Backup
                         else // this bkfd exists and is usable if the outFile is OK
                         {
                             needToWriteBackupFile = false;
+                            uint bytesRead;
+                            uint desiredReadSize = 1024; // more than we really need
+                            W32File.WIN32_STREAM_ID streamHeader;
+
+                            IntPtr pLocalBuffer = Marshal.AllocHGlobal((int)desiredReadSize);
+                            IntPtr pLocalBufferAt = pLocalBuffer;
+                            toFileInformationFromBkFd.FileIndexHigh = 0;
+                            toFileInformationFromBkFd.FileIndexLow = 0;
+                            if (W32File.ReadFile(toBkFd, pLocalBuffer, desiredReadSize, out bytesRead, IntPtr.Zero))
+                            {
+                                streamHeader = (W32File.WIN32_STREAM_ID)Marshal.PtrToStructure(pLocalBufferAt, typeof(W32File.WIN32_STREAM_ID));
+                                pLocalBufferAt = new IntPtr(pLocalBuffer.ToInt64() + W32File.MIN_WIN32_STREAM_ID_SIZE + CHECKSUM_SIZE); // first CHECKSUM_SIZE bytes are for a checksum
+                                if (streamHeader.StreamId == (uint)W32File.StreamIdValue.BACKUP_GREENWHEEL_HEADER  && streamHeader.Size > 0)
+                                {
+
+                                   toFileInformationFromBkFd = (W32File.BY_HANDLE_FILE_INFORMATION) Marshal.PtrToStructure(pLocalBufferAt, typeof(W32File.BY_HANDLE_FILE_INFORMATION));
+                                }
+                            }
+                            W32File.CloseHandle(toBkFd);
+                            toBkFd = W32File.INVALID_HANDLE_VALUE;
+                            Marshal.FreeHGlobal(pLocalBuffer);
+                            if (toFileInformationFromBkFd.FileSizeHigh == fromFileInformation.FileSizeHigh &&
+                                toFileInformationFromBkFd.FileSizeLow == fromFileInformation.FileSizeLow &&
+                                toFileInformationFromBkFd.LastWriteTime.Equals(fromFileInformation.LastWriteTime)
+                                )
+                            {
+                                // The backup file reckons we're identical, that's good enough for me!
+                                BackupFileInformationMatchesFromFile = true;
+                            }
+
                         }
                     }
                 }
@@ -789,7 +860,7 @@ public class Backup
                     {
                         if (overwriteDir)
                         {
-                            int nd = DeletionHelper.DeletePathAndContentsRegardless(addUnicodePrefix(newFilename));
+                            int nd = deletionHelper.DeletePathAndContentsRegardless(addUnicodePrefix(newFilename));
                             if (nd > 0)
                             {
                                 nDeleted += nd;
@@ -833,7 +904,7 @@ public class Backup
                     {
                         if (overwriteReparse)
                         {
-                            int nd = DeletionHelper.DeletePathAndContentsRegardless(addUnicodePrefix(newFilename));
+                            int nd = deletionHelper.DeletePathAndContentsRegardless(addUnicodePrefix(newFilename));
                             if (nd > 0)
                             {
                                 nOverwritten++;
@@ -863,11 +934,12 @@ public class Backup
                         {
                             // we are copying a file over, but it's possible the source and dest are the same in which case nothing needs doing
 
-                            if (toFileInformation.FileSizeHigh == fromFileInformation.FileSizeHigh && toFileInformation.FileSizeLow == fromFileInformation.FileSizeLow && toFileInformation.LastWriteTime.Equals(fromFileInformation.LastWriteTime))
+                            if (  BackupFileInformationMatchesFromFile ||
+                                (toFileInformation.FileSizeHigh == fromFileInformation.FileSizeHigh && toFileInformation.FileSizeLow == fromFileInformation.FileSizeLow && toFileInformation.LastWriteTime.Equals(fromFileInformation.LastWriteTime)))
                             {
                                 needToWriteFile = false;
                                 nSame++;
-                                result = outcome.Unchanged;
+                                result = outcome.OnlyNeedBkFile;
                                 if (!needToWriteBackupFile)
                                 {
                                     // not only is the original file intact, but the bkfd if wanted is also intact
@@ -878,7 +950,7 @@ public class Backup
                             }
                             else
                             {
-                                int nd = DeletionHelper.DeletePathAndContentsRegardless(addUnicodePrefix(newFilename));
+                                int nd = deletionHelper.DeletePathAndContentsRegardless(addUnicodePrefix(newFilename));
                                 if (nd > 0)
                                 {
                                     nOverwritten++;
@@ -903,7 +975,7 @@ public class Backup
                     {
                         if (overwriteFile)
                         {
-                            int nd = DeletionHelper.DeletePathAndContentsRegardless(addUnicodePrefix(newFilename));
+                            int nd = deletionHelper.DeletePathAndContentsRegardless(addUnicodePrefix(newFilename));
                             if (nd > 0)
                             {
                                 result = outcome.ReplaceTarget;
@@ -936,7 +1008,11 @@ public class Backup
                 if (isNormalDir || isReparseDir)
                 {
                     result = destExisted ? outcome.ReplaceTarget : outcome.NewTarget;
-                    if (isNormalDir && destExisted && destIsNormalDir) result = outcome.Unchanged;
+                    if (isNormalDir && destExisted && destIsNormalDir)
+                    {
+                        if (needToWriteBackupFile) result = outcome.OnlyNeedBkFile;
+                        else result = outcome.Unchanged;
+                    }
                     if (!W32File.CreateDirectory(addUnicodePrefix(newFilename), IntPtr.Zero))
                     {
 
@@ -1135,17 +1211,24 @@ public class Backup
                             {
                                 W32File.WIN32_STREAM_ID greenStream = new W32File.WIN32_STREAM_ID();
                                 greenStream.StreamId = (uint)W32File.StreamIdValue.BACKUP_GREENWHEEL_HEADER;
-                                greenStream.Size = 0;
+                                greenStream.Size = 236; // big enough
                                 greenStream.StreamNameSize = 0;
                                 greenStream.StreamNameData = IntPtr.Zero;
                                 greenStream.StreamAttributes = (uint)fromFileInformation.FileAttributes;
 
                                 uint nbw = 0;
-                                int greenStreamSize = Marshal.SizeOf(greenStream);
-                                IntPtr greenStreamPtr = Marshal.AllocHGlobal(greenStreamSize);
-                                Marshal.StructureToPtr(greenStream, greenStreamPtr, false);
+                                int greenStreamSize = 0;
+                                IntPtr greenStreamPtr = Marshal.AllocHGlobal((int) greenStream.Size + W32File.MIN_WIN32_STREAM_ID_SIZE);
+                                IntPtr greenStreamPtrAt = greenStreamPtr;
+                                Marshal.StructureToPtr(greenStream, greenStreamPtrAt, false);
+                                greenStreamSize += W32File.MIN_WIN32_STREAM_ID_SIZE;
+                                greenStreamSize += CHECKSUM_SIZE;
+                                greenStreamPtrAt = new IntPtr(greenStreamPtr.ToInt64() + (Int64) greenStreamSize);
+                                Marshal.StructureToPtr(fromFileInformation, greenStreamPtrAt, false);
+                                greenStreamSize += Marshal.SizeOf(fromFileInformation);
+                                greenStreamPtrAt = new IntPtr(greenStreamPtr.ToInt64() + (Int64)greenStreamSize);
 
-                                bool ok = W32File.WriteFile(toBkFd, greenStreamPtr, W32File.MIN_WIN32_STREAM_ID_SIZE, out nbw, IntPtr.Zero);
+                                bool ok = W32File.WriteFile(toBkFd, greenStreamPtr,(uint)( W32File.MIN_WIN32_STREAM_ID_SIZE + greenStream.Size), out nbw, IntPtr.Zero);
                                 Marshal.FreeHGlobal(greenStreamPtr);
                             }
                             alreadyWrittenGreenwheelHeader = true;
@@ -1178,7 +1261,7 @@ public class Backup
                                     {
                                         currentStreamGoesToOutFd = needToWriteFile && restoreAFS;
                                         currentStreamGoesToOutBkFd = needToWriteBackupFile && createBkfAFS;
-                                        currentStreamGoesToChecksum = true; 
+                                        currentStreamGoesToChecksum = false; 
                                         break;
                                     }
                                 default:
@@ -1212,17 +1295,35 @@ public class Backup
                         {
                             failed = true; break;
                         }
-                        if (currentStreamGoesToChecksum)
-                        {
-                            Marshal.Copy(b.streamDataSegmentStart, md5buffer, 0, (int)bytesWritten);
-                            md5.TransformBlock(md5buffer, 0, (int)bytesWritten, null, 0);
-                        }
+
                     }
+                    if (currentStreamGoesToChecksum && !b.atNewStreamHeader)
+                    {
+                        Marshal.Copy(b.streamDataSegmentStart, md5buffer, 0, (int)b.streamDataSegmentSize);
+                        md5.TransformBlock(md5buffer, 0, (int)b.streamDataSegmentSize, null, 0);
+                    } 
                     sofar += b.streamDataSegmentSize;
                     reporter(originalFilename, newFilename, isNormalDir, isReparseFile || isReparseDir, flen, sofar, reportStage.Transfer, outcome.NotFinished, null);
                 }
                 while (true);
                 md5.TransformFinalBlock(md5buffer, 0, 0);
+                // now we rewind the backup file and write the checksum
+                if ( needToWriteBackupFile)
+
+                {
+                    long newPos = 0;
+                    W32File.SetFilePointerEx(toBkFd,(long)(W32File.MIN_WIN32_STREAM_ID_SIZE),out newPos,0);
+                    if ( newPos == W32File.MIN_WIN32_STREAM_ID_SIZE)
+                    {
+                        IntPtr pBufferLocal = Marshal.AllocHGlobal(1024); 
+                        int hashSize = md5.HashSize / 8;
+                       
+                        Marshal.Copy(md5.Hash,0,pBufferLocal,hashSize);
+                        W32File.WriteFile(toBkFd,pBufferLocal,(uint) hashSize,out bytesWritten,IntPtr.Zero);
+                        Marshal.FreeHGlobal(pBufferLocal);
+                    }
+                }
+                
                 // Console.WriteLine(BitConverter.ToString(md5.Hash));
             }
             failed = false;

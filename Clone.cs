@@ -36,7 +36,7 @@ namespace Clone
     }
     class Clone
     {
-        private const String version = "Greenwheel clone version D9P7. Copyright (c) Gary M. Bilkus";
+        private const String version = "Greenwheel clone version D9RA. Copyright (c) Gary M. Bilkus";
         [MTAThread]
         static void Main(string[] args)
         {
@@ -72,7 +72,7 @@ namespace Clone
             {
                 while ( (line = file.ReadLine()) != null)
                 {
-                    excludePaths.Add(line);
+                    excludePaths.Add(line.ToUpper());
                 }
             }
 
@@ -94,7 +94,7 @@ namespace Clone
             {
                 if (waitingForExcludePath)
                 {
-                    excludePaths.Add(arg);
+                    excludePaths.Add(arg.ToUpper());
                     waitingForExcludePath = false;
                     continue;
                 }
@@ -113,6 +113,7 @@ namespace Clone
                         case "HELP": usage(); return;
                         case "XL":
                             waitingForBatchFilePath = true;
+                            excludingPaths = true;
                             break;
                         case "W":
                         case "MIR": overwrite = true; break;

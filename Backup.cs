@@ -621,7 +621,11 @@ public class Backup
                 String mainFn = fn.Substring(0, fn.Length - bkFileSuffix.Length);
                 if (actionList.ContainsKey(mainFn))
                 {
-                    actionList[mainFn].toFileInfo.hasBkfd = true;
+                    var v = actionList[mainFn].toFileInfo;
+                    if (v != null)
+                    {
+                        v.hasBkfd = true;
+                    }
                 }
             }
             else
@@ -735,10 +739,7 @@ public class Backup
         /* If this is a .bkfd file, then don't clone it! */
         String source = basePath + fn1;
         String dest = basePath + fn1;
-        if (source.EndsWith(bkFileSuffix))
-        {
-            return;
-        }
+
         Boolean shouldRecurse = cloner(fn1, fdata, fileList); // This may throw an exception if the reporter wants to exit if there's an error
         if (!shouldRecurse) return;
         FileFind.WIN32_FIND_DATA fdata1 = new FileFind.WIN32_FIND_DATA();
@@ -761,7 +762,10 @@ public class Backup
     {
         // try out the new version
         FileInfo fid = new FileInfo();
-
+        if (fileName.EndsWith(bkFileSuffix))
+        {
+            return false;
+        }
         fileList.Add(fileName, fid);
         fid.w32fileinfo.CreationTime = fdata.ftCreationTime;
         fid.w32fileinfo.FileAttributes = (FileAttributes)fdata.dwFileAttributes;

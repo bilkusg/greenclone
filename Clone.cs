@@ -36,7 +36,7 @@ namespace Clone
     }
     class Clone
     {
-        private const String version = "Greenwheel clone version D9RA. Copyright (c) Gary M. Bilkus";
+        private const String version = "Greenwheel clone version DA19. Copyright (c) Gary M. Bilkus";
         [MTAThread]
         static void Main(string[] args)
         {
@@ -85,7 +85,7 @@ namespace Clone
             int nPaths = 0;
             int reportVerbosity = 3;
             // coarse grained command line options
-            Boolean bkfile = false, reparseOnly = false, overwrite = false, useHardLinks = false, copyPermissions = false;
+            Boolean bkfile = false, reparseOnly = false, overwrite = false, useHardLinks = false, copyPermissions = true, copyNothing = false;
             Boolean useVss = false; Boolean useFullVss = true;
             Boolean waitingForExcludePath = false;
             Boolean waitingForBatchFilePath = false;
@@ -118,7 +118,7 @@ namespace Clone
                         case "W":
                         case "MIR": overwrite = true; break;
                         case "NP":
-                        case "NOPERMS": copyPermissions = true; break;
+                        case "NOPERMS": copyPermissions = false; break;
                         case "K":
                         case "BKFD": bkfile = true; break;
                         case "H":
@@ -142,6 +142,9 @@ namespace Clone
                         case "QUICKVSS":
                             useVss = true;
                             useFullVss = false;
+                            break;
+                        case "COPYNOTHING":
+                            copyNothing = true;
                             break;
                         default:
                             {
@@ -259,7 +262,11 @@ namespace Clone
                 b.overwriteFile = overwrite; // if true, allow changed files to overwrite in the destination
                 b.overwriteReparse = overwrite; // if true, allow changed reparse points to overwrite in the destination
                 b.removeExtra = overwrite; //  automatically remove from the destination any files not found in the source
-
+                if (copyNothing) // in other words we delete spurious files in the destination, but don't copy anything new
+                {
+                    b.restoreFileContents = false;
+                    b.createBkf = false;
+                }
                 b.cloneAlsoUsesBkf = true;
                 Backup.reportVerbosity = reportVerbosity;
                 if (excludingPaths)

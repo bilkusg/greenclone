@@ -34,6 +34,7 @@ public class DeletionHelper
     private Hashtable emptyHashtable = new Hashtable();
     public virtual void reporter(string filename, bool isDir, bool isKept)
     {
+        return;
         if (isKept)
         {
             Console.WriteLine("                  :KEEP:{0}", filename);
@@ -696,8 +697,10 @@ public class Backup
     public static int reportVerbosity = 1;
 
     // override this in a derived class if you want to report differently
-    protected virtual void reporter(String activity, String filename, FileDisposition disposition)
+    protected virtual void reporter(FileDisposition disposition)
     {
+        String filename = disposition.pathName;
+
         if (reportVerbosity == 0) return;
         if (disposition.exception == null)
         {
@@ -866,7 +869,7 @@ public class Backup
             CloneDelete(toDelete[i]);
         }
 
-        // Finally, do the rest of the work
+        // Do the rest of the work
         foreach (KeyValuePair<String, FileDisposition> action in actionList)
         {
             CloneAct(action.Value);
@@ -874,10 +877,36 @@ public class Backup
             {
                 case Outcome.Failed:
                 case Outcome.FailedAndBroke:
-                case Outcome.NotFinished: 
+
                 nFailed++;
                     break;
+            }
 
+        }
+        if (nFailed > 0)
+        {
+            // if we failed we don't delete extra files
+        }
+        else
+        {
+            int nLateDeletions = toDeleteAtEnd.Count;
+            for (int i = nLateDeletions - 1; i >= 0; i--)
+            {
+                var v = toDeleteAtEnd[i];
+                CloneDelete(v);
+                nDeleted++;
+            }
+        }
+        nFailed = 0;
+        foreach (KeyValuePair<String, FileDisposition> action in actionList)
+        {
+            switch (action.Value.actualOutcome)
+            {
+                case Outcome.Failed:
+                case Outcome.FailedAndBroke:
+
+                nFailed++;
+                    break;
                 case Outcome.IgnoredSource:
                     break; // we've already counted these
 
@@ -925,6 +954,7 @@ public class Backup
                     nSame++;
                     break;
 
+                case Outcome.NotFinished:
                 case Outcome.PreserveExtra:
                 case Outcome.DeleteExtraFile:
                 case Outcome.DeleteExtraDirectory:
@@ -933,22 +963,8 @@ public class Backup
 
                     break;
             }
-
+            reporter(action.Value);
         }
-        if (nFailed > 0)
-        {
-            // if we failed we don't delete extra files
-        }
-        else
-        {
-            int nLateDeletions = toDeleteAtEnd.Count;
-            for (int i = nLateDeletions - 1; i >= 0; i--)
-            {
-                CloneDelete(toDeleteAtEnd[i]);
-                nDeleted++;
-            }
-        }
-
 
         return;
     }
@@ -1808,7 +1824,6 @@ public class Backup
                 if (toBkFd != W32File.INVALID_HANDLE_VALUE) W32File.CloseHandle(toBkFd);
             }
         }
-        reporter(prettyPrintOutcome(fdisp.actualOutcome), filename, fdisp);
 
     }
 }

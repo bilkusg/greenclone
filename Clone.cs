@@ -36,7 +36,7 @@ namespace Clone
     }
     class Clone
     {
-        private const String version = "Greenwheel clone version DA1H. Copyright (c) Gary M. Bilkus";
+        private const String version = "Greenwheel clone version DA3E. Copyright (c) Gary M. Bilkus";
         [MTAThread]
         static void Main(string[] args)
         {
@@ -276,7 +276,7 @@ namespace Clone
 
                 b.doit();
                 Console.WriteLine("IN:Dirs:{0} Files:{1} Special:{2} Ignored:{3}", b.nDirs, b.nFiles, b.nSpecial, b.nIgnored);
-                Console.WriteLine("OUT:Same:{0} Overwritten:{1} Deleted:{2} IntHLinked:{3}", b.nSame, b.nOverwritten, b.nDeleted,b.nInternalHardLinked);
+                Console.WriteLine("OUT:Same:{0} Copied:{1} Deleted:{2} IntHLinked:{3}", b.nSame, b.nCopied, b.nDeleted,b.nInternalHardLinked);
                 if (b.nFailed > 0)
                 {
                     Console.WriteLine("FAILED:{0}", b.nFailed);

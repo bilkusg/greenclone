@@ -1110,7 +1110,7 @@ public class Backup
 
             if (fileList.Count % 5000 == 0)
             {
-                if (reportVerbosity > 7) Console.Error.Write("DestFileList {0,-7} {1}", fileList.Count, fileName);
+                if (reportVerbosity > 7) Console.Error.WriteLine("DestFileList {0,-7} {1}", fileList.Count, fileName);
                 //Console.SetCursorPosition(0, origRow);
             }
 
@@ -1359,7 +1359,6 @@ public class Backup
                     }
 
                 }
-
                 else
                 {
                     StringBuilder s = new StringBuilder(2048);
@@ -1367,20 +1366,21 @@ public class Backup
                     IntPtr ffptr = FileFind.FindFirstFileNameW(/*AUP*/(originalPath + filename), 0, ref len, s);
                     if (ffptr != W32File.INVALID_HANDLE_VALUE)
                     {
-                        hardLinkName = s.ToString();
-                        hardlinkInfo[hardLinkName] = /*AUP*/(newPath + filename);
                         do
                         {
-                            // Console.Error.WriteLine("Link name:{0} so can link {1} to {2}", s, hardLinkName, hardlinkInfo[hardLinkName]);
+                            hardLinkName = s.ToString();
+                            if (hardLinkName.StartsWith(originalPathAfterDrive) && (hardLinkName != (originalPathAfterDrive + filename)) )
+                            {
+                                hardlinkInfo[hardLinkName] = /*AUP*/(newPath + filename);
+                                Console.Error.WriteLine("Link name:{0} so can link {1} to {2}", s, hardLinkName, hardlinkInfo[hardLinkName]);
+                            }
                             len = 2048;
                             if (!FileFind.FindNextFileNameW(ffptr, ref len, s))
                             {
                                 break;
                             }
-                            hardLinkName = s.ToString();
-                            hardlinkInfo[hardLinkName] = /*AUP*/(newPath + filename);
-                            FileFind.FindClose(ffptr);
                         } while (true);
+                        FileFind.FindClose(ffptr);
                     } // end if 
                 } // end if 
                 break;
@@ -1812,6 +1812,7 @@ public class Backup
                         if (!linkOK)
                         {
                             fdisp.actualOutcome = Outcome.Failed;
+                            Console.Error.WriteLine("Internal hard link failed from {0} to {1}", filename, alreadyLinkedFile);
                             fdisp.exception = new Win32Exception();
                         }
                         else

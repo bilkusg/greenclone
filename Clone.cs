@@ -36,7 +36,7 @@ namespace Clone
     }
     class Clone
     {
-        private const String version = "Greenwheel clone version 2.DA4C. Copyright (c) Gary M. Bilkus";
+        private const String version = "Greenwheel clone version 2.DA4G. Copyright (c) Gary M. Bilkus";
         [MTAThread]
         static void Main(string[] args)
         {

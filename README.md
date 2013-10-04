@@ -5,6 +5,7 @@ copy windows hierarchies handling hard and soft links, perms, afs, VSS shadows a
 
 Copyright (C) 2013 Gary M. Bilkus
 Initial version September 2013
+Version 2 October 2013
 
 
 This project - greenclone - provides Windows users with an alternative to robocopy and other command line tools for 

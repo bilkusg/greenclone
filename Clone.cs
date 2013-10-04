@@ -36,7 +36,7 @@ namespace Clone
     }
     class Clone
     {
-        private const String version = "Greenwheel clone version DA3F. Copyright (c) Gary M. Bilkus";
+        private const String version = "Greenwheel clone version 2.DA4C. Copyright (c) Gary M. Bilkus";
         [MTAThread]
         static void Main(string[] args)
         {
@@ -79,11 +79,12 @@ namespace Clone
         }
         public void run(string[] args)
         {
-            Console.WriteLine(version);
+            Console.Error.WriteLine(version);
             String fromPath = "";
             String toPath = "";
             int nPaths = 0;
             int reportVerbosity = 3;
+            Backup b;
             // coarse grained command line options
             Boolean bkfile = false, reparseOnly = false, overwrite = false, useHardLinks = false, copyPermissions = true, copyNothing = false;
             Boolean useVss = false; Boolean useFullVss = true;
@@ -175,7 +176,7 @@ namespace Clone
                 usage();
                 return;
             }
-            Console.WriteLine("From:{0} -> {1}", fromPath, toPath);
+            if ( reportVerbosity > 1) Console.Error.WriteLine("From:{0} -> {1}", fromPath, toPath);
 
             try
             {
@@ -184,30 +185,30 @@ namespace Clone
                 {
                     vssHelper = new VssHelper();
                     Console.WriteLine("VSS :INIT");
-                    
+
                     String atDrive;
                     String afterDrive;
                     atDrive = fromPath;
 
                     if (atDrive.StartsWith(@"\\?\"))
                     {
-                        
+
                         atDrive = atDrive.Substring(4);
                         if (atDrive.StartsWith("UNC"))
                         {
-                            Console.WriteLine("Cannot use VSS with a network drive");
+                            Console.Error.WriteLine("Cannot use VSS with a network drive");
                             return;
                         }
                     }
                     if (atDrive.StartsWith(@"\\"))
                     {
-                        Console.WriteLine("Cannot use VSS with a network drive");
+                        Console.Error.WriteLine("Cannot use VSS with a network drive");
                         return;
                     }
 
                     if (atDrive.ElementAt<Char>(1) != ':')
                     {
-                        Console.WriteLine("To use VSS you must explicitly specify the drive containing the directory to be copied");
+                        Console.Error.WriteLine("To use VSS you must explicitly specify the drive containing the directory to be copied");
                         return;
                     }
 
@@ -216,19 +217,19 @@ namespace Clone
 
 
                     String[] drives = { atDrive };
-                    vssHelper.CreateShadowsForDrives(drives,useFullVss);
+                    vssHelper.CreateShadowsForDrives(drives, useFullVss);
                     String driveShadow = (String)vssHelper.pathToShadow[atDrive];
                     if (driveShadow == null)
                     {
-                        Console.WriteLine("VSS creation failed - unable to continue");
+                        Console.Error.WriteLine("VSS creation failed - unable to continue");
                         return;
                     }
                     fromPath = driveShadow + afterDrive;
-                    Console.WriteLine("VSS :{0}", fromPath);
+                    if (reportVerbosity > 1) Console.Error.WriteLine("VSS :{0}", fromPath);
 
                 }
-              
-                Backup b = new MyBackup(fromPath, toPath);
+
+                b = new MyBackup(fromPath, toPath);
 
 
                 // The backup class has lots of fine-grained controls which we can set programmatically
@@ -275,25 +276,28 @@ namespace Clone
                 }
 
                 b.doit();
-                Console.WriteLine("IN:Dirs:{0} Files:{1} Special:{2} Ignored:{3}", b.nDirs, b.nFiles, b.nSpecial, b.nIgnored);
-                Console.WriteLine("OUT:Same:{0} Copied:{1} Deleted:{2} IntHLinked:{3}", b.nSame, b.nCopied, b.nDeleted,b.nInternalHardLinked);
-                if (b.nFailed > 0)
-                {
-                    Console.WriteLine("FAILED:{0}", b.nFailed);
-                }
-                else
-                {
-                    Console.WriteLine("SUCCEEDED");
-                }
+                if (reportVerbosity > 1) Console.WriteLine("IN:Dirs:{0} Files:{1} Special:{2} Ignored:{3}", b.nDirs, b.nFiles, b.nSpecial, b.nIgnored);
+                if (reportVerbosity > 1) Console.WriteLine("OUT:Same:{0} Copied:{1} Deleted:{2} IntHLinked:{3}", b.nSame, b.nCopied, b.nDeleted, b.nInternalHardLinked);
+
             }
             finally
             {
                 if (useVss && vssHelper != null)
                 {
                     vssHelper.DeleteShadows();
-                    Console.WriteLine("VSS :CLEAN");
+                    if (reportVerbosity > 1) Console.WriteLine("VSS :CLEAN");
                 }
+
             }
+            if (b.nFailed > 0)
+            {
+                if (reportVerbosity > 1) Console.WriteLine("FAILED:{0}", b.nFailed);
+            }
+            else
+            {
+                if (reportVerbosity > 1) Console.WriteLine("SUCCEEDED");
+            }
+
         }
     }
 }

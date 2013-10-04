@@ -34,19 +34,19 @@ public class DeletionHelper
     private Hashtable emptyHashtable = new Hashtable();
     public virtual void reporter(string filename, bool isDir, bool isKept)
     {
-        return;
+        if (Backup.reportVerbosity <= 5) return;
         if (isKept)
         {
-            Console.WriteLine("                  :KEEP:{0}", filename);
+            Console.Error.WriteLine("                  :KEEP:{0}", filename);
             return;
         }
         if (isDir)
         {
-            Console.WriteLine("                  :DELD:{0}", filename);
+            Console.Error.WriteLine("                  :DELD:{0}", filename);
         }
         else
         {
-            Console.WriteLine("                  :DELF:{0}", filename);
+            Console.Error.WriteLine("                  :DELF:{0}", filename);
         }
     }
     public int DeletePathAndContentsRegardless(string foundFileName)
@@ -243,7 +243,7 @@ class BackupReader
                 }
             }
             pBufferSize = bytesRead;
-            //Console.WriteLine("Read {0}", bytesRead);
+            //Console.Error.WriteLine("Read {0}", bytesRead);
         }
         // so we have some data in a buffer - either cos we've just read it or cos it was left over from last time
         // are we at the start of a brand new stream?
@@ -253,7 +253,7 @@ class BackupReader
             // if we are unlucky, we have some but not all of the next stream header. So to prevent any problems, we check for this 
             atStartOfFile = false;
             atLastSegmentOfCurrentStream = false;
-            //Console.WriteLine("CHECKING:{0} in buffer", pBufferSize - pBufferPos);
+            //Console.Error.WriteLine("CHECKING:{0} in buffer", pBufferSize - pBufferPos);
             if (!entireFileRead && (pBufferSize - pBufferPos < 1024))
             {
                 IntPtr pBufferEnd = new IntPtr(pBuffer.ToInt64() + pBufferSize);
@@ -376,11 +376,12 @@ public enum Outcome
     Unchanged = 81,
     OnlyNeedBkFile = 82,
     // bad outcomes, failed means failed and did nothing, failedAndBroke means did something but not the right thing!
-    Failed = 99,
-    FailedAndBroke = 100
+    Failed = 90,
+    FailedAndBroke = 91
 }
 /* 
     case Outcome.NotFinished:
+    case Outcome.Reported:
     case Outcome.IgnoredSource:
     case Outcome.NewFile:
     case Outcome.NewFileSymlink:
@@ -426,6 +427,7 @@ public class FileDisposition
     public FileInfo toFileInfo = null;
     public Outcome desiredOutcome = Outcome.NotFinished;
     public Outcome actualOutcome = Outcome.NotFinished;
+    public Boolean resultReported = false;
     public Win32Exception exception = null;
 }
 public class Backup
@@ -622,9 +624,9 @@ public class Backup
 
         if (fa.HasFlag(FileAttributes.ReparsePoint))
         {
-            return fa.HasFlag(FileAttributes.Directory) ? "SDIR" : "SFIL";
+            return fa.HasFlag(FileAttributes.Directory) ? "sdir" : "sfil";
         }
-        return fa.HasFlag(FileAttributes.Directory) ? "DIR " : "FILE";
+        return fa.HasFlag(FileAttributes.Directory) ? "dir " : "file";
     }
     public String prettyPrintOutcome(Outcome finalOutcome)
     {
@@ -667,7 +669,7 @@ public class Backup
             case Outcome.Unchanged: return ("Same");
             case Outcome.OnlyNeedBkFile: return ("SamK");
             case Outcome.Failed: return ("Fail");
-            case Outcome.FailedAndBroke: return ("Brnk");
+            case Outcome.FailedAndBroke: return ("Brkn");
         }
 
         return ("EEEE");
@@ -694,25 +696,41 @@ public class Backup
         // We deal with the cases where we might need a trailing slash to open the file later
     }
 
-    public static int reportVerbosity = 1;
+    public static int reportVerbosity = 3; // quiet = 1 normal = 3 verbose = 5 veryverbose = 8
 
     // override this in a derived class if you want to report differently
     protected virtual void reporter(FileDisposition disposition)
     {
         String filename = disposition.pathName;
-
-        if (reportVerbosity == 0) return;
+        if (disposition.resultReported) return;
+       
+        if (disposition.actualOutcome == Outcome.NotFinished) return;
         if (disposition.exception == null)
         {
-            Console.WriteLine("{0:4} {1:4} {2:6} {3:6} {4}", prettyPrint(disposition.fromFileInfo),
+            Console.WriteLine("{0,-4}->{1,-4} {2,-6} {3,-6} {4}", prettyPrint(disposition.fromFileInfo),
                             prettyPrint(disposition.toFileInfo), prettyPrintOutcome(disposition.desiredOutcome), prettyPrintOutcome(disposition.actualOutcome), filename);
+            if (reportVerbosity > 3)
+            {
+                Console.Error.WriteLine("{0,-4}->{1,-4} {2,-6} {3,-6} {4}", prettyPrint(disposition.fromFileInfo),
+                           prettyPrint(disposition.toFileInfo), prettyPrintOutcome(disposition.desiredOutcome), prettyPrintOutcome(disposition.actualOutcome), filename);
+  
+            }
         }
         else
         {
-            Console.WriteLine("{0:4} {1:4} {2:6} {3:6} {4} {5}", prettyPrint(disposition.fromFileInfo),
+            Console.WriteLine("{0,-4}->{1,-4} {2,-6} {3,-6} {4} {5}", prettyPrint(disposition.fromFileInfo),
                             prettyPrint(disposition.toFileInfo), prettyPrintOutcome(disposition.desiredOutcome), prettyPrintOutcome(disposition.actualOutcome), filename,
                             disposition.exception.Message);
+            if (reportVerbosity > 1)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.Error.WriteLine("{0,-4}->{1,-4} {2,-6} {3,-6} {4} {5}", prettyPrint(disposition.fromFileInfo),
+                                prettyPrint(disposition.toFileInfo), prettyPrintOutcome(disposition.desiredOutcome), prettyPrintOutcome(disposition.actualOutcome), filename,
+                                disposition.exception.Message);
+                Console.ResetColor();
+            }
         }
+        disposition.resultReported = true;
     }
 
     // public delegate void reportFunc(String originalFilename, String newFilename, Boolean isDir, Boolean isSpecial, long filelen, long donesofar, reportStage stage, outcome finalOutcome, Win32Exception e);
@@ -751,8 +769,8 @@ public class Backup
             W32File.CreateDirectory(newPath, IntPtr.Zero);
         }
         CloneRecursive(newPath, "", fdata, toFileList, CloneGetDestFiles);
-        Console.WriteLine("SourceFileList contains {0} entries", fromFileList.Count);
-        Console.WriteLine("TargetFileList contains {0} entries", toFileList.Count);
+        if ( reportVerbosity > 4) Console.Error.WriteLine("SourceFileList contains {0} entries", fromFileList.Count);
+        if (reportVerbosity > 4) Console.Error.WriteLine("TargetFileList contains {0} entries", toFileList.Count);
 
         if (toFileList.Count <= 1)
         {
@@ -814,6 +832,7 @@ public class Backup
         List<FileDisposition> toDelete = new List<FileDisposition>();
         List<FileDisposition> toMkdir = new List<FileDisposition>();
         List<FileDisposition> toDeleteAtEnd = new List<FileDisposition>();
+        if (reportVerbosity > 7) Console.Error.WriteLine("Calcuating decision tree");
         foreach (KeyValuePair<String, FileDisposition> action in actionList)
         {
             CloneDecide(action.Value);
@@ -862,50 +881,26 @@ public class Backup
                     break;
             }
         }
-
         int nDeletions = toDelete.Count;
         for (int i = nDeletions - 1; i >= 0; i--)
         {
-            CloneDelete(toDelete[i]);
+            var v = toDelete[i];
+            CloneDelete(v);
+            nDeleted++;
+            reporter(v);
         }
-
+        if ( reportVerbosity > 7) Console.Error.WriteLine("Initial deletions completed. Starting main actions.");
         // Do the rest of the work
         foreach (KeyValuePair<String, FileDisposition> action in actionList)
         {
+            // Console.Error.WriteLine("{0} start", action.Value.pathName);
             CloneAct(action.Value);
             switch (action.Value.actualOutcome)
             {
                 case Outcome.Failed:
                 case Outcome.FailedAndBroke:
 
-                nFailed++;
-                    break;
-            }
-
-        }
-        if (nFailed > 0)
-        {
-            // if we failed we don't delete extra files
-        }
-        else
-        {
-            int nLateDeletions = toDeleteAtEnd.Count;
-            for (int i = nLateDeletions - 1; i >= 0; i--)
-            {
-                var v = toDeleteAtEnd[i];
-                CloneDelete(v);
-                nDeleted++;
-            }
-        }
-        nFailed = 0;
-        foreach (KeyValuePair<String, FileDisposition> action in actionList)
-        {
-            switch (action.Value.actualOutcome)
-            {
-                case Outcome.Failed:
-                case Outcome.FailedAndBroke:
-
-                nFailed++;
+                    nFailed++;
                     break;
                 case Outcome.IgnoredSource:
                     break; // we've already counted these
@@ -916,7 +911,7 @@ public class Backup
                 case Outcome.ReplaceDirectoryWithHardLinkInDestination:
                     nInternalHardLinked++;
                     break;
-                
+
                 case Outcome.NewFile:
                 case Outcome.ReplaceFileOrSymlinkFileWithFile:
                 case Outcome.ReplaceDirectorySymlinkWithFile:
@@ -954,7 +949,7 @@ public class Backup
                     nSame++;
                     break;
 
-                case Outcome.NotFinished:
+
                 case Outcome.PreserveExtra:
                 case Outcome.DeleteExtraFile:
                 case Outcome.DeleteExtraDirectory:
@@ -962,8 +957,28 @@ public class Backup
                 case Outcome.DeleteDirectoryWithinReplacedDirectory:
 
                     break;
+                case Outcome.NotFinished:
+                    break;
             }
-            reporter(action.Value);
+            reporter(action.Value); // report if finished at this point
+            // Console.Error.WriteLine("{0} Finish", action.Value.pathName);
+        }
+        if (nFailed > 0)
+        {
+            if ( reportVerbosity > 1) Console.Error.WriteLine("Errors - so not deleting extra files");
+            // if we failed we don't delete extra files
+        }
+        else
+        {
+            if ( reportVerbosity > 7) Console.Error.WriteLine("Deleting extra files if any");
+            int nLateDeletions = toDeleteAtEnd.Count;
+            for (int i = nLateDeletions - 1; i >= 0; i--)
+            {
+                var v = toDeleteAtEnd[i];
+                CloneDelete(v);
+                nDeleted++;
+                reporter(v);
+            }
         }
 
         return;
@@ -979,7 +994,7 @@ public class Backup
             W32File.WIN32_STREAM_ID wid1;
             wid1 = (W32File.WIN32_STREAM_ID)Marshal.PtrToStructure(pBuffer, typeof(W32File.WIN32_STREAM_ID));
             dsistart = wid1.Size;
-            //Console.WriteLine("DSI:{0}:{1}:{2}", wid1.StreamId, wid1.StreamNameSize, wid1.Size);
+            //Console.Error.WriteLine("DSI:{0}:{1}:{2}", wid1.StreamId, wid1.StreamNameSize, wid1.Size);
         }
     }
     public void CloneRecursive(string basePath, string fn1, FileFind.WIN32_FIND_DATA fdata, SortedDictionary<String, FileInfo> fileList, cloneFunc cloner)
@@ -1003,7 +1018,7 @@ public class Backup
                 fa = W32File.GetFileAttributes(basePath);
             }
             fdata.dwFileAttributes = (int)fa;
-            Console.Error.WriteLine("CloneRecursive base is {0}", basePath + possibleSlash);
+            // Console.Error.WriteLine("CloneRecursive base is {0}", basePath + possibleSlash);
             shouldRecurse = cloner(possibleSlash, fdata, fileList);
         }
         else
@@ -1029,58 +1044,84 @@ public class Backup
     }
     public bool CloneGetSourceFiles(String fileName, FileFind.WIN32_FIND_DATA fdata, SortedDictionary<String, FileInfo> fileList)
     {
-        FileInfo fid = new FileInfo();
-        if (fileName == @"\") fileName = "";
-        if (fileName.EndsWith(bkFileSuffix))
+        int origRow = Console.CursorTop;
+        try
         {
-            return false;
-        }
-        fileList.Add(fileName, fid);
-        fid.w32fileinfo.CreationTime = fdata.ftCreationTime;
-        fid.w32fileinfo.FileAttributes = (FileAttributes)fdata.dwFileAttributes;
-        fid.w32fileinfo.FileIndexHigh = 0;
-        fid.w32fileinfo.FileIndexLow = 0;
-        fid.w32fileinfo.FileSizeHigh = fdata.nFileSizeHigh;
-        fid.w32fileinfo.FileSizeLow = fdata.nFileSizeLow;
-        fid.w32fileinfo.LastAccessTime = fdata.ftLastAccessTime;
-        fid.w32fileinfo.LastAccessTime = fdata.ftLastWriteTime;
-        fid.w32fileinfo.NumberOfLinks = 0;
-        fid.w32fileinfo.VolumeSerialNumber = 0;
+            FileInfo fid = new FileInfo();
+            if (fileName == @"\") fileName = "";
+            if (exclude(fileName))
+            {
+                fid.excluded = true;
+                if (reportVerbosity > 4) Console.Error.WriteLine("Excluding src {0}", fileName);
+            }
+            if (fileName.EndsWith(bkFileSuffix))
+            {
+                return false;
+            }
+            fileList.Add(fileName, fid);
+            fid.w32fileinfo.CreationTime = fdata.ftCreationTime;
+            fid.w32fileinfo.FileAttributes = (FileAttributes)fdata.dwFileAttributes;
+            fid.w32fileinfo.FileIndexHigh = 0;
+            fid.w32fileinfo.FileIndexLow = 0;
+            fid.w32fileinfo.FileSizeHigh = fdata.nFileSizeHigh;
+            fid.w32fileinfo.FileSizeLow = fdata.nFileSizeLow;
+            fid.w32fileinfo.LastAccessTime = fdata.ftLastAccessTime;
+            fid.w32fileinfo.LastAccessTime = fdata.ftLastWriteTime;
+            fid.w32fileinfo.NumberOfLinks = 0;
+            fid.w32fileinfo.VolumeSerialNumber = 0;
 
-        if (fileList.Count % 1000 == 0)
+            if (fileList.Count % 5000 == 0)
+            {
+                if (reportVerbosity > 7) Console.Error.WriteLine("SourceFileList {0,-7} {1}", fileList.Count, fileName);
+                //Console.SetCursorPosition(0, origRow);
+            }
+
+            return !fid.excluded && fid.w32fileinfo.FileAttributes.HasFlag(FileAttributes.Directory) && !
+                fid.w32fileinfo.FileAttributes.HasFlag(FileAttributes.ReparsePoint);
+        }
+        finally
         {
-            Console.WriteLine("SourceFileList {0} {1}", fileList.Count, fileName);
+ 
         }
-
-        return fid.w32fileinfo.FileAttributes.HasFlag(FileAttributes.Directory) && !
-            fid.w32fileinfo.FileAttributes.HasFlag(FileAttributes.ReparsePoint);
     }
     public bool CloneGetDestFiles(String fileName, FileFind.WIN32_FIND_DATA fdata, SortedDictionary<String, FileInfo> fileList)
     {
-        if (fileName == @"\") fileName = "";
-        FileInfo fid = new FileInfo();
-
-        fileList.Add(fileName, fid);
-        fid.w32fileinfo.CreationTime = fdata.ftCreationTime;
-        fid.w32fileinfo.FileAttributes = (FileAttributes)fdata.dwFileAttributes;
-        fid.w32fileinfo.FileIndexHigh = 0;
-        fid.w32fileinfo.FileIndexLow = 0;
-        fid.w32fileinfo.FileSizeHigh = fdata.nFileSizeHigh;
-        fid.w32fileinfo.FileSizeLow = fdata.nFileSizeLow;
-        fid.w32fileinfo.LastAccessTime = fdata.ftLastAccessTime;
-        fid.w32fileinfo.LastAccessTime = fdata.ftLastWriteTime;
-        fid.w32fileinfo.NumberOfLinks = 0;
-        fid.w32fileinfo.VolumeSerialNumber = 0;
-
-        if (fileList.Count % 1000 == 0)
+        int origRow = Console.CursorTop;
+        try
         {
-            Console.WriteLine("DestFileList {0} {1}", fileList.Count, fileName);
+            if (fileName == @"\") fileName = "";
+            FileInfo fid = new FileInfo();
+            if (exclude(fileName))
+            {
+                fid.excluded = true;
+                if (reportVerbosity > 4) Console.Error.WriteLine("Excluding dest {0}", fileName);
+            }
+            fileList.Add(fileName, fid);
+            fid.w32fileinfo.CreationTime = fdata.ftCreationTime;
+            fid.w32fileinfo.FileAttributes = (FileAttributes)fdata.dwFileAttributes;
+            fid.w32fileinfo.FileIndexHigh = 0;
+            fid.w32fileinfo.FileIndexLow = 0;
+            fid.w32fileinfo.FileSizeHigh = fdata.nFileSizeHigh;
+            fid.w32fileinfo.FileSizeLow = fdata.nFileSizeLow;
+            fid.w32fileinfo.LastAccessTime = fdata.ftLastAccessTime;
+            fid.w32fileinfo.LastAccessTime = fdata.ftLastWriteTime;
+            fid.w32fileinfo.NumberOfLinks = 0;
+            fid.w32fileinfo.VolumeSerialNumber = 0;
+
+            if (fileList.Count % 5000 == 0)
+            {
+                if (reportVerbosity > 7) Console.Error.Write("DestFileList {0,-7} {1}", fileList.Count, fileName);
+                //Console.SetCursorPosition(0, origRow);
+            }
+
+            return !fid.excluded && fid.w32fileinfo.FileAttributes.HasFlag(FileAttributes.Directory) && !
+                fid.w32fileinfo.FileAttributes.HasFlag(FileAttributes.ReparsePoint);
+
         }
+        finally
+        {
 
-        return fid.w32fileinfo.FileAttributes.HasFlag(FileAttributes.Directory) && !
-            fid.w32fileinfo.FileAttributes.HasFlag(FileAttributes.ReparsePoint);
-
-
+        }
     }
     public void CloneDecide(FileDisposition fdisp)
     {
@@ -1096,6 +1137,7 @@ public class Backup
         Boolean isReparseDir = false;
         Boolean isReparseFile = false;
         Boolean isNormalFile = false;
+        Boolean fromExcluded = false;
         long flen = 0;
 
         Boolean destExists = false;
@@ -1105,11 +1147,14 @@ public class Backup
         Boolean destIsNormalDir = false;
         Boolean destIsReparseDir = false;
         Boolean destIsReparseFile = false;
+        Boolean destExcluded = false;
         long dFlen = 0;
+
 
         if (fdisp.fromFileInfo != null)
         {
             sourceExists = true;
+            fromExcluded = fdisp.fromFileInfo.excluded;
             isDir = fdisp.fromFileInfo.w32fileinfo.FileAttributes.HasFlag(FileAttributes.Directory);
             isReparse = fdisp.fromFileInfo.w32fileinfo.FileAttributes.HasFlag(FileAttributes.ReparsePoint);
             isNormalFile = !isDir && !isReparse;
@@ -1121,6 +1166,7 @@ public class Backup
         if (fdisp.toFileInfo != null)
         {
             destExists = true;
+            destExcluded = fdisp.toFileInfo.excluded;
             dDir = fdisp.toFileInfo.w32fileinfo.FileAttributes.HasFlag(FileAttributes.Directory);
             dReparse = fdisp.toFileInfo.w32fileinfo.FileAttributes.HasFlag(FileAttributes.ReparsePoint);
             destIsNormalFile = !dDir && !dReparse;
@@ -1129,7 +1175,14 @@ public class Backup
             destIsReparseFile = !dDir && dReparse;
             dFlen = (((long)fdisp.toFileInfo.w32fileinfo.FileSizeHigh) << 32) + fdisp.toFileInfo.w32fileinfo.FileSizeLow;
         }
-        if (!filename.StartsWith(directoryBeingMonitored))
+        // edge case - we exclude a deeply nested file within a directory which is being replaced by a normal file
+        if (fromExcluded || destExcluded) // exclusions trump all, and if this is a directory, the contents won't even be here
+        {
+            nIgnored++;
+            fdisp.desiredOutcome = Outcome.IgnoredSource; return;
+        }
+        // this only works because our list is a SortedDictionary so directory contents always appear immediately after their parent
+        if ((directoryIsBeingDeleted || directoryIsBeingPreserved) && !filename.StartsWith(directoryBeingMonitored))
         {
             directoryIsBeingPreserved = false;
             directoryIsBeingDeleted = false;
@@ -1157,17 +1210,13 @@ public class Backup
             return; // if the source doesn't exist there's really nothing more to do here
         }
 
-        if (fdisp.fromFileInfo.excluded)
-        {
-            nIgnored++;
-            fdisp.desiredOutcome = Outcome.IgnoredSource; return;
-        }
+
 
         if (isNormalFile) nFiles++;
         if (isNormalDir) nDirs++;
         if (isReparse) nSpecial++;
 
-        // Now we make a provisional determination based solely on the types of the two paths if they exist
+        // Now we make a determination
         if (!destExists)
         {
             fdisp.desiredOutcome = isNormalDir ? Outcome.NewDirectory : isReparseDir ? Outcome.NewDirectorySymlink : isReparseFile ? Outcome.NewFileSymlink
@@ -1336,6 +1385,11 @@ public class Backup
                 } // end if 
                 break;
         } // end case
+
+        // Now we have a specific special case to deal with
+        // If the target is a directory and it is being preserved for whatever reason, we need its contents to be preserved regardless
+        // Similarly, if the target is a directory and it is being deleted, we need its contents to be deleted too
+
     }
     public void CloneDelete(FileDisposition fdisp)
     {
@@ -1344,34 +1398,26 @@ public class Backup
         {
             fdisp.actualOutcome = Outcome.PreserveExtra;
         }
-        if (fdisp.toFileInfo.w32fileinfo.FileAttributes.HasFlag(FileAttributes.Directory))
+        int i = deletionHelper.DeletePathAndContentsRegardless(newPath + filename); // Should be no contents, but if there are, this will sort it
+        if (i < 1)
         {
-            if (!W32File.RemoveDirectory(/*AUP*/(newPath + filename)))
-            {
-                fdisp.actualOutcome = Outcome.Failed;
-                fdisp.exception = new Win32Exception();
-            }
-            else
-            {
-                fdisp.actualOutcome = fdisp.desiredOutcome;
-            };
+            fdisp.actualOutcome = Outcome.Failed;
+            fdisp.exception = new Win32Exception();
         }
         else
         {
-            if (!W32File.DeleteFile(/*AUP*/(newPath + filename)))
+            switch (fdisp.desiredOutcome)
             {
-                fdisp.actualOutcome = Outcome.Failed;
-                fdisp.exception = new Win32Exception();
+                case Outcome.DeleteDirectoryWithinReplacedDirectory:
+                case Outcome.DeleteExtraDirectory:
+                case Outcome.DeleteExtraFile:
+                case Outcome.DeleteFileWithinReplacedDirectory:
+                    fdisp.actualOutcome = fdisp.desiredOutcome;
+                    break;
             }
-            else
-            {
-                fdisp.actualOutcome = fdisp.desiredOutcome;
 
-            }
         }
         deletionHelper.DeletePathAndContentsRegardless(/*AUP*/(newPath + filename + bkFileSuffix)); // whenever we delete a target file we must delete the bkfd if it exists
-        // and this call takes care of the edge condition that the bkfd is somehow
-        // a directory not a normal file
     }
     public void CloneMkdir(FileDisposition fdisp)
     {
@@ -1812,8 +1858,32 @@ public class Backup
             try
             {
                 openSourceFiles(filename, out fromFd, out fromBkFd);
-                if (transferNeeded) openDestFile(filename, out toFd);
-                if (bkfTransferNeeded) openDestBkFile(filename, out toBkFd);
+                if (fromFd == W32File.INVALID_HANDLE_VALUE)
+                {
+                    fdisp.actualOutcome = Outcome.Failed;
+                    fdisp.exception = new Win32Exception();
+                    return;
+                }
+                if (transferNeeded)
+                {
+                    openDestFile(filename, out toFd);
+                    if (toFd == W32File.INVALID_HANDLE_VALUE)
+                    {
+                        fdisp.actualOutcome = Outcome.Failed;
+                        fdisp.exception = new Win32Exception();
+                        return;
+                    }
+                }
+                if (bkfTransferNeeded)
+                {
+                    openDestBkFile(filename, out toBkFd);
+                    if (toBkFd == W32File.INVALID_HANDLE_VALUE)
+                    {
+                        fdisp.actualOutcome = Outcome.Failed;
+                        fdisp.exception = new Win32Exception();
+                        return;
+                    }
+                }
                 TransferData(fdisp, fromFd, fromBkFd, toFd, toBkFd);
             }
             finally

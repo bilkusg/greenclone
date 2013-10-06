@@ -37,16 +37,16 @@ public class DeletionHelper
         if (Backup.reportVerbosity <= 5) return;
         if (isKept)
         {
-            Console.Error.WriteLine("                  :KEEP:{0}", filename);
+//            Console.Error.WriteLine("                  :KEEP:{0}", filename);
             return;
         }
         if (isDir)
         {
-            Console.Error.WriteLine("                  :DELD:{0}", filename);
+            Console.Error.WriteLine("...DeletingDir:{0}", filename);
         }
         else
         {
-            Console.Error.WriteLine("                  :DELF:{0}", filename);
+            Console.Error.WriteLine("...DeletingFile:{0}", filename);
         }
     }
     public int DeletePathAndContentsRegardless(string foundFileName)
@@ -466,6 +466,9 @@ public class Backup
 
     public Boolean removeExtra = false;  // delete any files in the destination but not in the source
     public List<String> excludeList = null; // list of files to exclude.
+
+    public System.IO.StreamWriter logFile = null;
+
     public String paramOriginalPath;  // the param is what is passed to the backup, the others are the regularised unicoded versions
     public String paramNewPath;
     public String originalPath;
@@ -475,8 +478,8 @@ public class Backup
     public String newPathDrive;
     public String newPathAfterDrive;
 
-    public String bkFileSuffix = ".bkfd";
-
+    private const String bkFileSuffix = ".bkfd";
+    private const String unicodePrefix = @"\\?\";
 
     public Hashtable filesToKeep = new Hashtable();
     public SortedDictionary<String, FileInfo> fromFileList = new SortedDictionary<string, FileInfo>(), toFileList = new SortedDictionary<string, FileInfo>();
@@ -494,7 +497,7 @@ public class Backup
     public int nCopied = 0;
     public int nDeleted = 0;
     public int nInternalHardLinked = 0;
-    private String unicodePrefix = @"\\?\";
+
     // store hard link information as needed
     private Hashtable hardlinkInfo = new Hashtable();
     public const int CHECKSUM_SIZE = 32;
@@ -707,26 +710,26 @@ public class Backup
         if (disposition.actualOutcome == Outcome.NotFinished) return;
         if (disposition.exception == null)
         {
-            Console.WriteLine("{0,-4}->{1,-4} {2,-6} {3,-6} {4}", prettyPrint(disposition.fromFileInfo),
-                            prettyPrint(disposition.toFileInfo), prettyPrintOutcome(disposition.desiredOutcome), prettyPrintOutcome(disposition.actualOutcome), filename);
+            if ( logFile != null) logFile.WriteLine("{0,-4}->{1,-4}:{2,-6}:{3}", prettyPrint(disposition.fromFileInfo),
+                            prettyPrint(disposition.toFileInfo), prettyPrintOutcome(disposition.actualOutcome), filename);
             if (reportVerbosity > 3)
             {
-                Console.Error.WriteLine("{0,-4}->{1,-4} {2,-6} {3,-6} {4}", prettyPrint(disposition.fromFileInfo),
-                           prettyPrint(disposition.toFileInfo), prettyPrintOutcome(disposition.desiredOutcome), prettyPrintOutcome(disposition.actualOutcome), filename);
+                Console.Error.WriteLine("{0,-4}->{1,-4}:{2,-6}:{3}", prettyPrint(disposition.fromFileInfo),
+                            prettyPrint(disposition.toFileInfo), prettyPrintOutcome(disposition.actualOutcome), filename);
   
             }
         }
         else
         {
-            Console.WriteLine("{0,-4}->{1,-4} {2,-6} {3,-6} {4} {5}", prettyPrint(disposition.fromFileInfo),
+            if ( logFile != null ) logFile.WriteLine("{0,-4}->{1,-4}:{3,-6}:{5}:{2:-6}:{4}", prettyPrint(disposition.fromFileInfo),
                             prettyPrint(disposition.toFileInfo), prettyPrintOutcome(disposition.desiredOutcome), prettyPrintOutcome(disposition.actualOutcome), filename,
                             disposition.exception.Message);
             if (reportVerbosity > 1)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
-                Console.Error.WriteLine("{0,-4}->{1,-4} {2,-6} {3,-6} {4} {5}", prettyPrint(disposition.fromFileInfo),
-                                prettyPrint(disposition.toFileInfo), prettyPrintOutcome(disposition.desiredOutcome), prettyPrintOutcome(disposition.actualOutcome), filename,
-                                disposition.exception.Message);
+                Console.Error.WriteLine("{0,-4}->{1,-4}:{3,-6}:{5}:{2:-6}:{4}", prettyPrint(disposition.fromFileInfo),
+                            prettyPrint(disposition.toFileInfo), prettyPrintOutcome(disposition.desiredOutcome), prettyPrintOutcome(disposition.actualOutcome), filename,
+                            disposition.exception.Message);
                 Console.ResetColor();
             }
         }
@@ -755,7 +758,9 @@ public class Backup
         if (fromFileList.Count <= 1)
         {
             // This is either an empty directory or a nonexistent location - don't proceed because it's almost certainly an error
+            Console.ForegroundColor = (ConsoleColor.Magenta);
             Console.Error.WriteLine("Source {0} appears nonexistent or empty - aborting", originalPath);
+            Console.ResetColor();
             return;
         }
         fdata = new FileFind.WIN32_FIND_DATA();
@@ -1070,9 +1075,9 @@ public class Backup
             fid.w32fileinfo.NumberOfLinks = 0;
             fid.w32fileinfo.VolumeSerialNumber = 0;
 
-            if (fileList.Count % 5000 == 0)
+            if (fileList.Count % 10000 == 0)
             {
-                if (reportVerbosity > 7) Console.Error.WriteLine("SourceFileList {0,-7} {1}", fileList.Count, fileName);
+                if (reportVerbosity > 4) Console.Error.WriteLine("SourceFileList {0,-7} {1}", fileList.Count, fileName);
                 //Console.SetCursorPosition(0, origRow);
             }
 
@@ -1108,9 +1113,9 @@ public class Backup
             fid.w32fileinfo.NumberOfLinks = 0;
             fid.w32fileinfo.VolumeSerialNumber = 0;
 
-            if (fileList.Count % 5000 == 0)
+            if (fileList.Count % 10000 == 0)
             {
-                if (reportVerbosity > 7) Console.Error.WriteLine("DestFileList {0,-7} {1}", fileList.Count, fileName);
+                if (reportVerbosity > 4) Console.Error.WriteLine("DestFileList {0,-7} {1}", fileList.Count, fileName);
                 //Console.SetCursorPosition(0, origRow);
             }
 

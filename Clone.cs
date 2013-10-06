@@ -15,6 +15,7 @@
     along with GreenClone.  If not, see <http://www.gnu.org/licenses/>.
 */
 using System;
+using System.IO;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -36,12 +37,12 @@ namespace Clone
     }
     class Clone
     {
-        private const String version = "Greenwheel clone version 2.DA4G. Copyright (c) Gary M. Bilkus";
+        private const String version = "Greenwheel clone version 2.DA6G. Copyright (c) Gary M. Bilkus";
         [MTAThread]
-        static void Main(string[] args)
+        static int Main(string[] args)
         {
             Clone c = new Clone();
-            c.run(args);
+            return c.run(args);
         }
 
         VssHelper vssHelper = null;
@@ -57,12 +58,14 @@ namespace Clone
             Console.WriteLine("/K - create separate files with permission information and alternate streams");
             Console.WriteLine("/W - overwrite existing files where necessary");
             Console.WriteLine("/H - use hard links");
-            Console.WriteLine("/Q - quiet - only error messages");
-            Console.WriteLine("/V - verbose - report file progress");
+            Console.WriteLine("/Q - quiet - only error messages and summary to console");
+            Console.WriteLine("/V - verbose - report progress to console");
+            Console.WriteLine("/VV - very verbose - report progress and diagnostics to console");
             Console.WriteLine("/XP path - exclude files matching path within the hierarchy. Can be repeated");
             Console.WriteLine("/XL filename - Read exclude list from contents of file");
             Console.WriteLine("/SHADOW - Create a shadow copy for the source and read from that");
             Console.WriteLine("/QUICKVSS - Create a shadow copy without registering all writers. Faster than SHADOW and works when debugging");
+            Console.WriteLine("/LOGFILE - Open the named file as a logfile to contain full details of all work done");
         }
 
         public void processBatchExcludeFile(String filename)
@@ -77,7 +80,7 @@ namespace Clone
             }
 
         }
-        public void run(string[] args)
+        public int run(string[] args)
         {
             Console.Error.WriteLine(version);
             String fromPath = "";
@@ -90,6 +93,8 @@ namespace Clone
             Boolean useVss = false; Boolean useFullVss = true;
             Boolean waitingForExcludePath = false;
             Boolean waitingForBatchFilePath = false;
+            Boolean waitingForLogFilePath = false;
+            String logFile = null;
 
             foreach (String arg in args)
             {
@@ -105,13 +110,22 @@ namespace Clone
                     waitingForBatchFilePath = false;
                     continue;
                 }
+                if ( waitingForLogFilePath)
+                {
+                    waitingForLogFilePath = false;
+                    logFile = arg;
+                    continue;
+                }
                 if (arg.StartsWith("/") || arg.StartsWith("-"))
                 {
                     // this is an argument
                     switch (arg.Substring(1).ToUpper())
                     {
                         case "?":
-                        case "HELP": usage(); return;
+                        case "HELP": usage(); return -1;
+                        case "LOGFILE":
+                            waitingForLogFilePath = true;
+                            break;
                         case "XL":
                             waitingForBatchFilePath = true;
                             excludingPaths = true;
@@ -150,7 +164,7 @@ namespace Clone
                         default:
                             {
                                 Console.Write("FAILED: Unrecognised option {0} use /? for help", arg);
-                                return;
+                                return -1;
                             }
                     }
                 }
@@ -168,14 +182,15 @@ namespace Clone
                 {
                     usage();
 
-                    return;
+                    return -1;
                 }
             };
             if (nPaths != 2)
             {
                 usage();
-                return;
+                return -1;
             }
+
             if ( reportVerbosity > 1) Console.Error.WriteLine("From:{0} -> {1}", fromPath, toPath);
 
             try
@@ -197,19 +212,19 @@ namespace Clone
                         if (atDrive.StartsWith("UNC"))
                         {
                             Console.Error.WriteLine("Cannot use VSS with a network drive");
-                            return;
+                            return -1;
                         }
                     }
                     if (atDrive.StartsWith(@"\\"))
                     {
                         Console.Error.WriteLine("Cannot use VSS with a network drive");
-                        return;
+                        return -1;
                     }
 
                     if (atDrive.ElementAt<Char>(1) != ':')
                     {
                         Console.Error.WriteLine("To use VSS you must explicitly specify the drive containing the directory to be copied");
-                        return;
+                        return -1;
                     }
 
                     afterDrive = atDrive.Substring(2);
@@ -222,7 +237,7 @@ namespace Clone
                     if (driveShadow == null)
                     {
                         Console.Error.WriteLine("VSS creation failed - unable to continue");
-                        return;
+                        return -1;
                     }
                     fromPath = driveShadow + afterDrive;
                     if (reportVerbosity > 1) Console.Error.WriteLine("VSS :{0}", fromPath);
@@ -231,7 +246,10 @@ namespace Clone
 
                 b = new MyBackup(fromPath, toPath);
 
-
+                if (logFile != "")
+                {
+                    b.logFile = new System.IO.StreamWriter(logFile);
+                }
                 // The backup class has lots of fine-grained controls which we can set programmatically
                 // This particular front end program only controls the most common options ( based on my assumptions about how it will be used 
                 // Feel free to add your own options and set these flags accordingly
@@ -276,8 +294,8 @@ namespace Clone
                 }
 
                 b.doit();
-                if (reportVerbosity > 1) Console.WriteLine("IN:Dirs:{0} Files:{1} Special:{2} Ignored:{3}", b.nDirs, b.nFiles, b.nSpecial, b.nIgnored);
-                if (reportVerbosity > 1) Console.WriteLine("OUT:Same:{0} Copied:{1} Deleted:{2} IntHLinked:{3}", b.nSame, b.nCopied, b.nDeleted, b.nInternalHardLinked);
+                if (reportVerbosity > 1) Console.Error.WriteLine("IN:Dirs:{0} Files:{1} Special:{2} Ignored:{3}", b.nDirs, b.nFiles, b.nSpecial, b.nIgnored);
+                if (reportVerbosity > 1) Console.Error.WriteLine("OUT:Same:{0} Copied:{1} Deleted:{2} IntHLinked:{3}", b.nSame, b.nCopied, b.nDeleted, b.nInternalHardLinked);
 
             }
             finally
@@ -285,19 +303,20 @@ namespace Clone
                 if (useVss && vssHelper != null)
                 {
                     vssHelper.DeleteShadows();
-                    if (reportVerbosity > 1) Console.WriteLine("VSS :CLEAN");
+                    if (reportVerbosity > 1) Console.Error.WriteLine("VSS :CLEAN");
                 }
 
             }
             if (b.nFailed > 0)
             {
-                if (reportVerbosity > 1) Console.WriteLine("FAILED:{0}", b.nFailed);
+                if (reportVerbosity > 1) Console.Error.WriteLine("FAILED:{0}", b.nFailed);
             }
             else
             {
-                if (reportVerbosity > 1) Console.WriteLine("SUCCEEDED");
+                if (reportVerbosity > 1) Console.Error.WriteLine("SUCCEEDED");
             }
-
+            b.logFile.Close();
+            return b.nFailed;
         }
     }
 }

@@ -56,11 +56,15 @@ The following options are available
    * /M - don't copy regular files, only reparse points  and the directory hierarchy. Useful for a quick fix for what robocopy leaves out
    * /H - if source and destination are on the same filesystem, copy files by hardlinking from source to dest. Useful for making a space-efficient capture of what's already there, just before clobbering it.
    * /M - only copy reparse points and the directory structure
-   * /V - verbose - report progress of files during transfer
+   * /LOGFILE filename - log all actions to the specified file
+   * /V - verbose reporting
+   * /VV - very verbose reporting mainly useful for debugging
    * /Q - quiet - only report errors
    * /XP - do not copy files matching the path supplied as the next parameter ( can be repeated ) 
    * /XL - the next parameter is a filename containing lines each of which is an exclude path ( can be repeated)
    
+Return result is 0 on success, -1 if command line error and otherwise the number of files which failed 
+for some reason.
 
 As a simple example which will probably cover most usage:
 For making backups from an in-use filesystem to a remote possibly non-windows share, do:

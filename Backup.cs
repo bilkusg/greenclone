@@ -37,7 +37,7 @@ public class DeletionHelper
         if (Backup.reportVerbosity <= 5) return;
         if (isKept)
         {
-//            Console.Error.WriteLine("                  :KEEP:{0}", filename);
+            //            Console.Error.WriteLine("                  :KEEP:{0}", filename);
             return;
         }
         if (isDir)
@@ -439,7 +439,7 @@ public class Backup
     public Boolean cloneReparse = true; // if true we clone reparse points. This requires the destination to be NTFS
     public Boolean cloneFile = true; // if true we clone normal files
     public Boolean cloneDir = true; // if true we clone directories ( and their contents if recursive )
-    public Boolean cloneAlsoUsesBkf = false; // if true, we look for extra information and use this in addition to the original file ( if any )
+    public Boolean cloneAlsoUsesBkf = false; // if true, we look for extra information and use this in addition to the source file ( if any )
 
     // What to produce on the other side
     public Boolean restoreFileContents = true; // if true, we create an output file with the same contents as the input file
@@ -451,7 +451,7 @@ public class Backup
     // and if so we restore them as hardlinks on the other side
 
 
-    public Boolean createBkf = false; // if true, all data apart from file contents is written to an extra location to allow a restore to recreate the original even if the destination
+    public Boolean createBkf = false; // if true, all data apart from file contents is written to an extra location to allow a restore to recreate the source even if the destination
     // isn't NTFS. This applies to permissions, attributes and reparse info, but not by default either file contents or AFS
     public Boolean createBkfAFS = false; // if true, the extra location will contain any AFS in addition to permissions and attributes
     public Boolean createBkfData = false; // if true, the file data is written to the extra location
@@ -471,10 +471,10 @@ public class Backup
 
     public String paramOriginalPath;  // the param is what is passed to the backup, the others are the regularised unicoded versions
     public String paramNewPath;
-    public String originalPath;
+    public String sourcePath;
     public String newPath;
-    public String originalPathDrive;
-    public String originalPathAfterDrive;
+    public String sourcePathDrive;
+    public String sourcePathAfterDrive;
     public String newPathDrive;
     public String newPathAfterDrive;
 
@@ -527,7 +527,7 @@ public class Backup
         // the default excluder - can be overriden in derived classes
         // return true if this file should not be copied based on its name only
         if (excludeList == null) return false;
-        //        if (filename.Length <= originalPathLength) return false;
+        //        if (filename.Length <= sourcePathLength) return false;
         String pathToMatch = @"\" + filename + @"\";
         pathToMatch = pathToMatch.ToUpper();
         int l = pathToMatch.Length;
@@ -683,14 +683,14 @@ public class Backup
         paramNewPath = nf;
         char[] backslashes = { '\\' };
         // Because we support long filenames, we use windows functions which don't understand forward slashes. But because we do support forward slashes, we convert them here
-        originalPath = paramOriginalPath.Replace(@"/", @"\");
+        sourcePath = paramOriginalPath.Replace(@"/", @"\");
         newPath = paramNewPath.Replace(@"/", @"\");
-        originalPath = addUnicodePrefix(fixUpPath(originalPath));
+        sourcePath = addUnicodePrefix(fixUpPath(sourcePath));
         newPath = addUnicodePrefix(fixUpPath(newPath));
 
-        originalPathAfterDrive = "";
-        originalPathDrive = drivePart(originalPath);
-        if (originalPathDrive.Length < originalPath.Length) originalPathAfterDrive = originalPath.Substring(originalPathDrive.Length);
+        sourcePathAfterDrive = "";
+        sourcePathDrive = drivePart(sourcePath);
+        if (sourcePathDrive.Length < sourcePath.Length) sourcePathAfterDrive = sourcePath.Substring(sourcePathDrive.Length);
 
         newPathAfterDrive = "";
         newPathDrive = drivePart(newPath);
@@ -706,24 +706,24 @@ public class Backup
     {
         String filename = disposition.pathName;
         if (disposition.resultReported) return;
-       
+
         if (disposition.actualOutcome == Outcome.NotFinished) return;
         if (disposition.exception == null)
         {
-            if ( logFile != null) logFile.WriteLine("{0,-4}->{1,-4}:{2,-6}:{3}", prettyPrint(disposition.fromFileInfo),
-                            prettyPrint(disposition.toFileInfo), prettyPrintOutcome(disposition.actualOutcome), filename);
+            if (logFile != null) logFile.WriteLine("{0,-4}->{1,-4}:{2,-6}:{3}", prettyPrint(disposition.fromFileInfo),
+                           prettyPrint(disposition.toFileInfo), prettyPrintOutcome(disposition.actualOutcome), filename);
             if (reportVerbosity > 3)
             {
                 Console.Error.WriteLine("{0,-4}->{1,-4}:{2,-6}:{3}", prettyPrint(disposition.fromFileInfo),
                             prettyPrint(disposition.toFileInfo), prettyPrintOutcome(disposition.actualOutcome), filename);
-  
+
             }
         }
         else
         {
-            if ( logFile != null ) logFile.WriteLine("{0,-4}->{1,-4}:{3,-6}:{5}:{2:-6}:{4}", prettyPrint(disposition.fromFileInfo),
-                            prettyPrint(disposition.toFileInfo), prettyPrintOutcome(disposition.desiredOutcome), prettyPrintOutcome(disposition.actualOutcome), filename,
-                            disposition.exception.Message);
+            if (logFile != null) logFile.WriteLine("{0,-4}->{1,-4}:{3,-6}:{5}:{2:-6}:{4}", prettyPrint(disposition.fromFileInfo),
+                          prettyPrint(disposition.toFileInfo), prettyPrintOutcome(disposition.desiredOutcome), prettyPrintOutcome(disposition.actualOutcome), filename,
+                          disposition.exception.Message);
             if (reportVerbosity > 1)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
@@ -736,13 +736,18 @@ public class Backup
         disposition.resultReported = true;
     }
 
-    // public delegate void reportFunc(String originalFilename, String newFilename, Boolean isDir, Boolean isSpecial, long filelen, long donesofar, reportStage stage, outcome finalOutcome, Win32Exception e);
+    // public delegate void reportFunc(String sourceFilename, String newFilename, Boolean isDir, Boolean isSpecial, long filelen, long donesofar, reportStage stage, outcome finalOutcome, Win32Exception e);
     // public reportFunc reporter;
 
-    public delegate Boolean cloneFunc(String originalFilename, FileFind.WIN32_FIND_DATA fdata, SortedDictionary<String, FileInfo> fileList);
+    public delegate Boolean cloneFunc(String sourceFilename, FileFind.WIN32_FIND_DATA fdata, SortedDictionary<String, FileInfo> fileList);
 
     virtual public void doit()
     {
+        Boolean sourceIsDir = false;
+        Boolean sourceIsReparse = false;
+        Boolean sourceIsDrive = false;
+
+
         if (excludeList != null)
         {
             excludeList.Sort();
@@ -750,37 +755,165 @@ public class Backup
 
         // Our fist task is to work out what to do about our top-level objects, because they might be drives not directories
         // and windows is so very inconsistent about such things
+        IntPtr sourcePathFd = W32File.INVALID_HANDLE_VALUE;
+        IntPtr destPathFd = W32File.INVALID_HANDLE_VALUE;
 
-        FileFind.WIN32_FIND_DATA fdata = new FileFind.WIN32_FIND_DATA();
-        fdata.cFileName = "";
+        FileFind.WIN32_FIND_DATA sourceFdata = new FileFind.WIN32_FIND_DATA();
+        FileFind.WIN32_FIND_DATA destFdata = new FileFind.WIN32_FIND_DATA(); 
 
-        CloneRecursive(originalPath, "", fdata, fromFileList, CloneGetSourceFiles);
-        if (fromFileList.Count <= 1)
+        if (this.sourcePath == this.sourcePathDrive)
         {
-            // This is either an empty directory or a nonexistent location - don't proceed because it's almost certainly an error
-            Console.ForegroundColor = (ConsoleColor.Magenta);
-            Console.Error.WriteLine("Source {0} appears nonexistent or empty - aborting", originalPath);
-            Console.ResetColor();
-            return;
-        }
-        fdata = new FileFind.WIN32_FIND_DATA();
-        fdata.cFileName = "";
-        if (newPath == newPathDrive)
-        {
-            //this is a drive letter or equivalent
+            sourceIsDrive = true; sourceIsDir = true;
+            sourceFdata.cFileName = "";
+            sourceFdata.dwFileAttributes = (int)(FileAttributes.Directory | FileAttributes.Device);
+            sourcePathFd = W32File.CreateFile(sourcePath + @"\"
+             , W32File.EFileAccess.GenericRead
+             , W32File.EFileShare.Read
+             , IntPtr.Zero
+             , W32File.ECreationDisposition.OpenExisting
+             , W32File.EFileAttributes.BackupSemantics | W32File.EFileAttributes.OpenReparsePoint
+             , IntPtr.Zero);
+            if (sourcePathFd == W32File.INVALID_HANDLE_VALUE)
+            {
+                Console.ForegroundColor = (ConsoleColor.Magenta);
+                Console.Error.WriteLine("Source drive {0} appears nonexistent or empty - aborting", sourcePath);
+                Console.Error.WriteLine("{0}", new Win32Exception().Message);
+                Console.ResetColor();
+                nFailed = 1;
+                return;
+            }
+            W32File.CloseHandle(sourcePathFd);
+
         }
         else
         {
-            W32File.CreateDirectory(newPath, IntPtr.Zero);
+            W32File.WIN32_FILE_ATTRIBUTE_DATA sourceAttributeData = new W32File.WIN32_FILE_ATTRIBUTE_DATA() ;
+            Boolean gotFileAttributesEx = W32File.GetFileAttributesEx(sourcePath, W32File.GET_FILEEX_INFO_LEVELS.GetFileExInfoStandard, out sourceAttributeData);
+            FileAttributes i = (FileAttributes) sourceAttributeData.dwFileAttributes;
+
+            sourceFdata.cFileName = sourcePathAfterDrive;
+            sourceFdata.dwFileAttributes = (int) i;
+            sourceFdata.nFileSizeHigh = sourceAttributeData.nFileSizeHigh;
+            sourceFdata.nFileSizeLow = sourceAttributeData.nFileSizeLow;
+            sourceFdata.ftLastWriteTime = sourceAttributeData.ftLastWriteTime;
+
+            if ((int)i == -1 || !gotFileAttributesEx)
+            {
+                Console.ForegroundColor = (ConsoleColor.Magenta);
+                Console.Error.WriteLine("Source {0} appears nonexistent or empty - aborting", sourcePath);
+                Console.Error.WriteLine("{0}", new Win32Exception().Message);
+                Console.ResetColor();
+                nFailed = 1;
+                return;
+            }
+
+            // get accurate information about the source file 
+            if (i.HasFlag(FileAttributes.Directory))
+            {
+                sourceIsDir = true;
+            }
+            if (i.HasFlag(FileAttributes.ReparsePoint))
+            {
+                sourceIsReparse = true;
+            }
         }
-        CloneRecursive(newPath, "", fdata, toFileList, CloneGetDestFiles);
-        if ( reportVerbosity > 4) Console.Error.WriteLine("SourceFileList contains {0} entries", fromFileList.Count);
+
+
+        if (this.newPath == this.newPathDrive)
+        {
+            destFdata.cFileName = "";
+            destFdata.dwFileAttributes = (int)(FileAttributes.Device | FileAttributes.Directory);
+
+            if (!sourceIsDir || sourceIsReparse)
+            {
+                Console.ForegroundColor = (ConsoleColor.Magenta);
+                Console.Error.WriteLine("Your source is not a directory but your destination is a drive - aborting", sourcePath);
+                Console.Error.WriteLine("Please specify the destination as a full filename if you just want to copy a single item");
+                Console.ResetColor();
+                nFailed = 1;
+                return;
+            }
+            destPathFd = W32File.CreateFile(newPath + @"\"
+             , W32File.EFileAccess.GenericRead
+             , W32File.EFileShare.Read
+             , IntPtr.Zero
+             , W32File.ECreationDisposition.OpenExisting
+             , W32File.EFileAttributes.BackupSemantics | W32File.EFileAttributes.OpenReparsePoint
+             , IntPtr.Zero);
+            if (destPathFd == W32File.INVALID_HANDLE_VALUE)
+            {
+                Console.ForegroundColor = (ConsoleColor.Magenta);
+                Console.Error.WriteLine("Destination drive {0} appears nonexistent or inaccessible - aborting", newPath);
+                Console.Error.WriteLine("{0}", new Win32Exception().Message);
+                Console.ResetColor();
+                nFailed = 1;
+                return;
+            }
+            else
+            {
+                W32File.CloseHandle(destPathFd);
+            }
+        }
+        else
+        {
+            // the destination is not a drive 
+            var i = W32File.GetFileAttributes(newPath);
+
+            if ((int)i == -1)
+            {
+                // the destination doesn't exist yet. So try to create it
+                if (sourceIsDir)
+                {
+                    if (!W32File.CreateDirectory(newPath, IntPtr.Zero))
+                    {
+                        Console.ForegroundColor = (ConsoleColor.Magenta);
+                        Console.Error.WriteLine("Unable to create destination directory {0} - aborting", newPath);
+                        Console.Error.WriteLine("{0}", new Win32Exception().Message);
+                        Console.ResetColor();
+                        nFailed = 1;
+                        return;
+                    }
+
+                }
+                else
+                {
+                    destPathFd = W32File.CreateFile(newPath
+             , W32File.EFileAccess.GenericRead
+             , W32File.EFileShare.Read
+             , IntPtr.Zero
+             , W32File.ECreationDisposition.New
+             , W32File.EFileAttributes.BackupSemantics | W32File.EFileAttributes.OpenReparsePoint
+             , IntPtr.Zero);
+                    if (destPathFd == W32File.INVALID_HANDLE_VALUE)
+                    {
+                        Console.ForegroundColor = (ConsoleColor.Magenta);
+                        Console.Error.WriteLine("Unable to create destination file {0} - aborting", newPath);
+                        Console.Error.WriteLine("{0}", new Win32Exception().Message);
+                        Console.ResetColor();
+                        nFailed = 1;
+                        return;
+                    }
+                    else
+                    {
+                        W32File.CloseHandle(destPathFd);
+                    }
+                }
+                i = W32File.GetFileAttributes(newPath);
+                destFdata.cFileName = newPathAfterDrive;
+                destFdata.dwFileAttributes = (int)i;
+
+            }
+        }
+
+        CloneRecursive(sourcePath, "", sourceFdata, fromFileList, CloneGetSourceFiles);
+
+  
+
+        CloneRecursive(newPath, "", destFdata, toFileList, CloneGetDestFiles);
+
+        if (reportVerbosity > 4) Console.Error.WriteLine("SourceFileList contains {0} entries", fromFileList.Count);
         if (reportVerbosity > 4) Console.Error.WriteLine("TargetFileList contains {0} entries", toFileList.Count);
 
-        if (toFileList.Count <= 1)
-        {
-
-        }
         // So we have two nice lists of files
         // The next stage is to work out what needs to be done
 
@@ -894,7 +1027,7 @@ public class Backup
             nDeleted++;
             reporter(v);
         }
-        if ( reportVerbosity > 7) Console.Error.WriteLine("Initial deletions completed. Starting main actions.");
+        if (reportVerbosity > 7) Console.Error.WriteLine("Initial deletions completed. Starting main actions.");
         // Do the rest of the work
         foreach (KeyValuePair<String, FileDisposition> action in actionList)
         {
@@ -970,12 +1103,12 @@ public class Backup
         }
         if (nFailed > 0)
         {
-            if ( reportVerbosity > 1) Console.Error.WriteLine("Errors - so not deleting extra files");
+            if (reportVerbosity > 1) Console.Error.WriteLine("Errors - so not deleting extra files");
             // if we failed we don't delete extra files
         }
         else
         {
-            if ( reportVerbosity > 7) Console.Error.WriteLine("Deleting extra files if any");
+            if (reportVerbosity > 7) Console.Error.WriteLine("Deleting extra files if any");
             int nLateDeletions = toDeleteAtEnd.Count;
             for (int i = nLateDeletions - 1; i >= 0; i--)
             {
@@ -989,7 +1122,7 @@ public class Backup
         return;
     }
     static ulong dsistart = 0;
-    public void displayStreamInfo(String originalFilename, IntPtr pBuffer, long sofar, long bytesRead)
+    public void displayStreamInfo(String sourceFilename, IntPtr pBuffer, long sofar, long bytesRead)
     {
 
         if (sofar == 0)
@@ -1016,12 +1149,26 @@ public class Backup
             FileAttributes fa = FileAttributes.Directory;
             if (drivePart(basePath) == basePath)
             {
+                // If this is a drive, we try to open it to see if we can
+                // This is the only time we open the file, but since it's a top-level special case, it's not a significant overhead
                 possibleSlash = @"\";
+
+                IntPtr pathExists = W32File.CreateFile(basePath + possibleSlash
+                         , W32File.EFileAccess.GenericRead
+                 , W32File.EFileShare.Read
+                , IntPtr.Zero
+                , W32File.ECreationDisposition.OpenExisting
+               , W32File.EFileAttributes.BackupSemantics | W32File.EFileAttributes.OpenReparsePoint
+                , IntPtr.Zero);
+                if (pathExists == W32File.INVALID_HANDLE_VALUE) return;
+                W32File.CloseHandle(pathExists);
             }
             else
             {
                 fa = W32File.GetFileAttributes(basePath);
+                if ((int)(fa) == -1) return;
             }
+
             fdata.dwFileAttributes = (int)fa;
             // Console.Error.WriteLine("CloneRecursive base is {0}", basePath + possibleSlash);
             shouldRecurse = cloner(possibleSlash, fdata, fileList);
@@ -1086,7 +1233,7 @@ public class Backup
         }
         finally
         {
- 
+
         }
     }
     public bool CloneGetDestFiles(String fileName, FileFind.WIN32_FIND_DATA fdata, SortedDictionary<String, FileInfo> fileList)
@@ -1345,7 +1492,7 @@ public class Backup
             case Outcome.ReplaceDirectoryWithFile:
             case Outcome.ReplaceDirectorySymlinkWithFile:
 
-                String hardLinkName = originalPathAfterDrive + filename; // This is what the hardlink system will find I think
+                String hardLinkName = sourcePathAfterDrive + filename; // This is what the hardlink system will find I think
                 if (hardlinkInfo.ContainsKey(hardLinkName)) // we're in luck - this file is a hard link we've already found, so use it
                 {
                     String alreadyLinkedFile = (String)hardlinkInfo[hardLinkName];
@@ -1368,13 +1515,13 @@ public class Backup
                 {
                     StringBuilder s = new StringBuilder(2048);
                     uint len = 2048;
-                    IntPtr ffptr = FileFind.FindFirstFileNameW(/*AUP*/(originalPath + filename), 0, ref len, s);
+                    IntPtr ffptr = FileFind.FindFirstFileNameW(/*AUP*/(sourcePath + filename), 0, ref len, s);
                     if (ffptr != W32File.INVALID_HANDLE_VALUE)
                     {
                         do
                         {
                             hardLinkName = s.ToString();
-                            if (hardLinkName.StartsWith(originalPathAfterDrive) && (hardLinkName != (originalPathAfterDrive + filename)) )
+                            if (hardLinkName.StartsWith(sourcePathAfterDrive) && (hardLinkName != (sourcePathAfterDrive + filename)))
                             {
                                 hardlinkInfo[hardLinkName] = /*AUP*/(newPath + filename);
                                 Console.Error.WriteLine("Link name:{0} so can link {1} to {2}", s, hardLinkName, hardlinkInfo[hardLinkName]);
@@ -1441,12 +1588,12 @@ public class Backup
             fdisp.actualOutcome = fdisp.desiredOutcome;
         }
     }
-    public void openSourceFiles(String originalFilename, out IntPtr fromFd, out IntPtr fromBkFd)
+    public void openSourceFiles(String sourceFilename, out IntPtr fromFd, out IntPtr fromBkFd)
     {
         fromFd = W32File.INVALID_HANDLE_VALUE;
         fromBkFd = W32File.INVALID_HANDLE_VALUE;
 
-        fromFd = W32File.CreateFile(/*AUP*/(originalPath + originalFilename)
+        fromFd = W32File.CreateFile(/*AUP*/(sourcePath + sourceFilename)
      , W32File.EFileAccess.GenericRead
      , W32File.EFileShare.Read
      , IntPtr.Zero
@@ -1460,7 +1607,7 @@ public class Backup
         /* next - see if we have a .bkfd file to go with this file */
         if (cloneAlsoUsesBkf) // otherwise we would just ignore any .bkfd files 
         {
-            fromBkFd = W32File.CreateFile(/*AUP*/(originalPath + originalFilename) + bkFileSuffix
+            fromBkFd = W32File.CreateFile(/*AUP*/(sourcePath + sourceFilename) + bkFileSuffix
             , W32File.EFileAccess.GenericRead
             , W32File.EFileShare.Read
             , IntPtr.Zero
@@ -1778,7 +1925,7 @@ public class Backup
                 bkfTransferNeeded = createBkf;
                 break;
             case Outcome.ReplaceFileOrSymlinkFileWithFile:
-                // The replace with file scenarios are the ones where we deferred deleting the original in case we can do something clever later on.
+                // The replace with file scenarios are the ones where we deferred deleting the source in case we can do something clever later on.
                 deletionHelper.DeletePathAndContentsRegardless(/*AUP*/(newPath + filename));
                 deletionHelper.DeletePathAndContentsRegardless(/*AUP*/(newPath + filename + bkFileSuffix));
                 transferNeeded = true;
@@ -1790,7 +1937,7 @@ public class Backup
             case Outcome.ReplaceDirectoryWithHardLinkToSource:
             case Outcome.ReplaceFileOrSymlinkFileWithHardLinkToSource:
                 {
-                    Boolean linkOK = W32File.CreateHardLink(/*AUP*/(newPath + filename), /*AUP*/(originalPath + filename), IntPtr.Zero);
+                    Boolean linkOK = W32File.CreateHardLink(/*AUP*/(newPath + filename), /*AUP*/(sourcePath + filename), IntPtr.Zero);
                     if (!linkOK)
                     {
                         fdisp.actualOutcome = Outcome.Failed;
@@ -1809,7 +1956,7 @@ public class Backup
                 {
                     Boolean linkOK = false;
                     Boolean bkLinkOK = true;
-                    String hardLinkName = originalPathAfterDrive + filename; // This is what the hardlink system will find I think
+                    String hardLinkName = sourcePathAfterDrive + filename; // This is what the hardlink system will find I think
                     if (hardlinkInfo.ContainsKey(hardLinkName)) // we're in luck - this file is a hard link we've already found, so use it
                     {
                         String alreadyLinkedFile = (String)hardlinkInfo[hardLinkName];

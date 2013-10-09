@@ -37,7 +37,7 @@ namespace Clone
     }
     class Clone
     {
-        private const String version = "Greenwheel clone version 2.DA6G. Copyright (c) Gary M. Bilkus";
+        private const String version = "Greenwheel clone version 2.DA8G. Copyright (c) Gary M. Bilkus";
         [MTAThread]
         static int Main(string[] args)
         {
@@ -66,6 +66,8 @@ namespace Clone
             Console.WriteLine("/SHADOW - Create a shadow copy for the source and read from that");
             Console.WriteLine("/QUICKVSS - Create a shadow copy without registering all writers. Faster than SHADOW and works when debugging");
             Console.WriteLine("/LOGFILE - Open the named file as a logfile to contain full details of all work done");
+            Console.WriteLine("/NORECURSE - just copy a single object and not its contents even if a directory");
+            Console.WriteLine("/NOADMIN - do not request elevated privileges - will often fail later as a result");
         }
 
         public void processBatchExcludeFile(String filename)
@@ -95,6 +97,8 @@ namespace Clone
             Boolean waitingForBatchFilePath = false;
             Boolean waitingForLogFilePath = false;
             String logFile = null;
+            Boolean noAdmin = false;
+            Boolean noRecurse = false;
 
             foreach (String arg in args)
             {
@@ -161,6 +165,8 @@ namespace Clone
                         case "COPYNOTHING":
                             copyNothing = true;
                             break;
+                        case "NORECURSE": noRecurse = true; break;
+                        case "NOADMIN": noAdmin = true; break;
                         default:
                             {
                                 Console.Write("FAILED: Unrecognised option {0} use /? for help", arg);
@@ -195,7 +201,13 @@ namespace Clone
 
             try
             {
-                Win32IF.Privileges.obtainPrivileges();
+                if (!noAdmin)
+                {
+                   if (!Win32IF.Privileges.obtainPrivileges())
+                   {
+                       Console.Error.WriteLine("Warning: Failed to obtain elevated ( backup) privileges - some transfers may fail");
+                   }
+                }
                 if (useVss)
                 {
                     vssHelper = new VssHelper();
@@ -246,14 +258,14 @@ namespace Clone
 
                 b = new MyBackup(fromPath, toPath);
 
-                if (logFile != "")
+                if (logFile != null)
                 {
                     b.logFile = new System.IO.StreamWriter(logFile);
                 }
                 // The backup class has lots of fine-grained controls which we can set programmatically
                 // This particular front end program only controls the most common options ( based on my assumptions about how it will be used 
                 // Feel free to add your own options and set these flags accordingly
-                b.recursive = true; // if false, only the named file will be copied ( or an empty directory if that's what it is ) mainly useful for testing.
+                b.recursive = !noRecurse; // if false, only the named file will be copied ( or an empty directory if that's what it is ) mainly useful for testing.
 
                 // these first options determine what kind of file we are interested in
                 b.cloneDir = true; // if false, subdirectories will be ignored too.
@@ -263,7 +275,7 @@ namespace Clone
 
                 b.createBkf = bkfile;  // if true, we create a separate .bkfd file to contain information such as AFS and permissions which may be lost if the destination isn't NTFS
                 // these options only apply if createBkf is true and should probably be left as is
-                // if we create a bkfd file we always store the original file attributes and permissions otherwise there's no point in having it
+                // if we create a bkfd file we always store the source file attributes and permissions otherwise there's no point in having it
                 // but these allow us to decide whether to store some or all of the data in the file to the bkfs file.
                 b.createBkfAFS = true; // we send AFS to the bkfs file as well as to the main file ( if possible )
                 b.createBkfData = false; // we send the actual file contents to the bkfs file. We're unlikely to use this
@@ -315,7 +327,7 @@ namespace Clone
             {
                 if (reportVerbosity > 1) Console.Error.WriteLine("SUCCEEDED");
             }
-            b.logFile.Close();
+            if ( b.logFile != null) b.logFile.Close();
             return b.nFailed;
         }
     }

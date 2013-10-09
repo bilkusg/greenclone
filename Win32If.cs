@@ -363,17 +363,6 @@ namespace Win32IF
             OpenNoRecall = 0x00100000,
             FirstPipeInstance = 0x00080000
         }
- 
-        /*
-        
-        typedef struct _WIN32_STREAM_ID {
-            DWORD         dwStreamId;
-            DWORD         dwStreamAttributes;
-            LARGE_INTEGER Size;
-            DWORD         dwStreamNameSize;
-            WCHAR         cStreamName[ANYSIZE_ARRAY];
-        } WIN32_STREAM_ID, *LPWIN32_STREAM_ID;
-        */
         [StructLayout(LayoutKind.Sequential)]
         public struct WIN32_STREAM_ID
         {
@@ -484,6 +473,9 @@ namespace Win32IF
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         public static extern FileAttributes GetFileAttributes(string FileName);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern Boolean PathFileExists(string FileName);
 
 
 
@@ -613,7 +605,7 @@ namespace Win32IF
         public const int SE_PRIVILEGE_ENABLED = 0x00000002;
         public const string SE_RESTORE_NAME = "SeRestorePrivilege";
         public const string SE_BACKUP_NAME = "SeBackupPrivilege";
-        static void ModifyPrivilege(string requestedPrivilege)
+        static Boolean ModifyPrivilege(string requestedPrivilege)
         {
             IntPtr processToken = IntPtr.Zero;
 
@@ -621,7 +613,7 @@ namespace Win32IF
                           TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
                           ref processToken))
             {
-                throw new Win32Exception();
+                return false;
             }
             LUID luid;
             luid.LowPart = 0;
@@ -631,7 +623,7 @@ namespace Win32IF
                                 requestedPrivilege,
                                 ref luid))
             {
-                throw new Win32Exception();
+                return false;
             }
             TOKEN_PRIVILEGES NewState;
             NewState.PrivilegeCount = 1;
@@ -645,14 +637,16 @@ namespace Win32IF
                               0, IntPtr.Zero, IntPtr.Zero
                                ))
             {
-                throw new Win32Exception();
+                return false;
             }
+            return true;
         }
 
-        public static void obtainPrivileges()
+        public static Boolean obtainPrivileges()
         {
-            ModifyPrivilege(SE_BACKUP_NAME);
-            ModifyPrivilege(SE_RESTORE_NAME);
+            if (!ModifyPrivilege(SE_BACKUP_NAME)) return false;
+            if (!ModifyPrivilege(SE_RESTORE_NAME)) return false ;
+            return true;
         }
 
     }

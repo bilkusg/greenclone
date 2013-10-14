@@ -1524,7 +1524,7 @@ public class Backup
                             if (hardLinkName.StartsWith(sourcePathAfterDrive) && (hardLinkName != (sourcePathAfterDrive + filename)))
                             {
                                 hardlinkInfo[hardLinkName] = /*AUP*/(newPath + filename);
-                                Console.Error.WriteLine("Link name:{0} so can link {1} to {2}", s, hardLinkName, hardlinkInfo[hardLinkName]);
+                                // Console.Error.WriteLine("Link name:{0} so can link {1} to {2}", s, hardLinkName, hardlinkInfo[hardLinkName]);
                             }
                             len = 2048;
                             if (!FileFind.FindNextFileNameW(ffptr, ref len, s))
